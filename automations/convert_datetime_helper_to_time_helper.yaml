@@ -1,0 +1,36 @@
+blueprint:
+  name: s42 - Synchronisiere Uhrzeit von Datum+Uhrzeit Helfer zu Uhrzeit-Helfer
+  description: >-
+    Diese Blueprint erstellt eine Automation, die auf die Änderung eines 'input_datetime'-Helfers (mit Datum und Uhrzeit) lauscht.
+    Sie extrahiert dann nur die Uhrzeit und speichert sie in einem zweiten 'input_datetime'-Helfer, der nur die Uhrzeit speichert.
+  domain: automation
+  source_url: https://raw.githubusercontent.com/TheRealSimon42/home_assistant_templates/main/blueprint_automations/convert_datetime_helper_to_time_helper.yaml
+  
+  input:
+    source_datetime_helper:
+      name: Quell-Helfer (Datum & Uhrzeit)
+      description: Wähle den input_datetime-Helfer aus, der Datum UND Uhrzeit enthält und als Quelle dient.
+      selector:
+        entity:
+          domain: input_datetime
+
+    target_time_helper:
+      name: Ziel-Helfer (Nur Uhrzeit)
+      description: Wähle den input_datetime-Helfer aus, der NUR die Uhrzeit speichern soll.
+      selector:
+        entity:
+          domain: input_datetime
+
+# Die Automation-Logik, die durch den Blueprint erstellt wird
+trigger:
+  - platform: state
+    entity_id: !input source_datetime_helper
+
+action:
+  - service: input_datetime.set_datetime
+    target:
+      entity_id: !input target_time_helper
+    data:
+      time: "{{ trigger.to_state.state.split(' ')[1] }}"
+
+mode: single

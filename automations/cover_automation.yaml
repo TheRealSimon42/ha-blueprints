@@ -1,0 +1,488 @@
+blueprint:
+  name: s42 - Intelligente Rollladensteuerung (UI-Version NFDF)
+  description: 'Steuert Rollläden basierend auf Zeit, Fensterkontakten, Anwesenheitsmodi
+    und Sturmwarnungen. Die Zuordnung von Rollläden zu Sensoren erfolgt über zwei
+    Listen in der UI, deren Reihenfolge übereinstimmen muss.
+
+    '
+  domain: automation
+  source_url: https://raw.githubusercontent.com/TheRealSimon42/home_assistant_templates/main/blueprint_automations/cover_automation.yaml
+  input:
+    assignment_section:
+      name: Zuordnung
+      description: Ordne hier jedem Rollladen einen Fenstersensor zu. Die Reihenfolge
+        in beiden Listen muss identisch sein!
+      icon: mdi:vector-link
+      input:
+        shutters:
+          name: Rollläden
+          description: Wähle alle zu steuernden Rollläden aus. Die Reihenfolge ist
+            entscheidend!
+          selector:
+            entity:
+              multiple: true
+              domain:
+              - cover
+              device_class:
+              - shutter
+              reorder: false
+        window_sensors:
+          name: Zugehörige Fensterssensoren
+          description: Wähle die passenden Fenstersensoren in der exakt gleichen Reihenfolge
+            wie die Rollläden oben aus. Der erste Sensor hier wird dem ersten Rollladen
+            oben zugeordnet, usw.
+          selector:
+            entity:
+              multiple: true
+              domain:
+              - binary_sensor
+              - sensor
+              reorder: false
+    morning_section:
+      name: Morgens Öffnen
+      description: Einstellungen für das automatische Öffnen der Rollläden am Morgen.
+      icon: mdi:weather-sunset-up
+      collapsed: true
+      input:
+        morning_time:
+          name: Uhrzeit für morgendliches Hochfahren
+          description: Ein `input_datetime`-Helfer, der die Uhrzeit für das Hochfahren
+            der Rollläden am Morgen festlegt.
+          selector:
+            entity:
+              domain:
+              - input_datetime
+              reorder: false
+              multiple: false
+        morning_shutters:
+          name: Rollläden für morgens
+          description: Die Rollläden, die morgens hochgefahren werden sollen. Mehrfachauswahl
+            ist möglich.
+          selector:
+            target:
+              entity:
+              - domain:
+                - cover
+                device_class:
+                - shutter
+        morning_position:
+          name: Zielposition für morgens
+          description: Die Position (in %), auf die die Rollläden morgens fahren sollen.
+            Die Aktion wird nur ausgeführt, wenn ein Rollladen geschlossener ist als
+            diese Position.
+          default: 100
+          selector:
+            number:
+              min: 0.0
+              max: 100.0
+              step: 1.0
+              mode: slider
+              unit_of_measurement: '%'
+    window_interaction_section:
+      name: Fenster-Interaktion
+      description: Definiert, wie Rollläden auf geöffnete oder gekippte Fenster reagieren.
+      icon: mdi:window-open-variant
+      collapsed: true
+      input:
+        tilted_position:
+          name: Zielposition für gekippte Fenster
+          description: Die Position (in %), auf die ein Rollladen fährt, wenn das
+            Fenster gekippt wird. Die Aktion wird nur ausgeführt, wenn der Rollladen
+            geschlossener ist als diese Position.
+          default: 20
+          selector:
+            number:
+              min: 0.0
+              max: 100.0
+              step: 1.0
+              mode: slider
+              unit_of_measurement: '%'
+        reclose_timeout:
+          name: Zeitfenster für automatisches Schließen
+          description: Wenn ein geöffnetes/gekipptes Fenster innerhalb dieser Zeit
+            (in Minuten) wieder geschlossen wird, fährt der Rollladen in seine Ausgangsposition
+            zurück.
+          default: 30
+          selector:
+            number:
+              min: 1.0
+              max: 120.0
+              unit_of_measurement: Minuten
+              step: 1.0
+              mode: slider
+        force_close:
+          name: Schließen erzwingen
+          description: 'Wenn aktiviert, wird der Rollladen nach Ablauf des Zeitfensters
+            immer geschlossen, auch wenn das Fenster noch offen ist. ⚠️ Achtung: Dies
+            kann dazu führen, dass du dich selbst aussperrst!'
+          default: false
+          selector:
+            boolean: {}
+    storm_protection_section:
+      name: Sturmschutz
+      description: Fährt die Rollläden bei starkem Wind automatisch hoch (oder im
+        Panzer-Modus herunter).
+      icon: mdi:weather-windy
+      collapsed: true
+      input:
+        weather_entity:
+          name: Wetter-Entität
+          description: 'Wähle deine Wetter-Entität (z.B. von DWD oder die Standard-Integration).
+            Standard: forecast.home'
+          default: weather.forecast_home
+          selector:
+            entity:
+              domain:
+              - weather
+              reorder: false
+              multiple: false
+        wind_speed_threshold:
+          name: Windgeschwindigkeit-Grenzwert (km/h)
+          description: Ab dieser Windgeschwindigkeit wird der Sturmschutz ausgelöst.
+            Ein Wert von ca. 55 km/h wird empfohlen.
+          default: 55
+          selector:
+            number:
+              min: 30.0
+              max: 120.0
+              step: 1.0
+              mode: slider
+              unit_of_measurement: km/h
+        panzer_mode:
+          name: Panzer-Modus
+          description: Wenn aktiviert, werden die Rollläden bei Sturm geschlossen
+            anstatt geöffnet.
+          default: false
+          selector:
+            boolean: {}
+        force_storm_action:
+          name: Aktion bei Sturm erzwingen
+          description: 'Wenn aktiviert, werden die Rollläden bei Sturm auch dann bewegt,
+            wenn die zugehörigen Fenster offen sind. ⚠️ Achtung: Dies kann dazu führen,
+            dass du dich selbst aussperrst!'
+          default: false
+          selector:
+            boolean: {}
+    night_mode_section:
+      name: Nachtmodus
+      description: Einstellungen für das Schließen der Rollläden bei Nacht.
+      icon: mdi:weather-night
+      collapsed: true
+      input:
+        night_mode_boolean:
+          name: Nachtmodus Helfer
+          description: Ein `input_boolean`-Helfer. Wenn dieser auf 'on' geschaltet
+            wird, werden die Rollläden für die Nacht geschlossen.
+          selector:
+            entity:
+              domain:
+              - input_boolean
+              reorder: false
+              multiple: false
+    notification_section:
+      name: Benachrichtigungen
+      description: Einstellungen für Benachrichtigungen bei zu lange offenen Fenstern.
+      icon: mdi:bell
+      collapsed: true
+      input:
+        notification_timeout:
+          name: Benachrichtigung nach X Min. (Fenster offen)
+          description: Sendet eine Nachricht, wenn ein Fenster länger als diese Zeit
+            komplett offen ist.
+          default: 45
+          selector:
+            number:
+              min: 5.0
+              max: 240.0
+              unit_of_measurement: Minuten
+              step: 1.0
+              mode: slider
+        notification_timeout_tilted:
+          name: Benachrichtigung nach X Min. (Fenster gekippt)
+          description: Sendet eine Nachricht, wenn ein Fenster länger als diese Zeit
+            nur gekippt ist.
+          default: 60
+          selector:
+            number:
+              min: 5.0
+              max: 480.0
+              unit_of_measurement: Minuten
+              step: 1.0
+              mode: slider
+        notification_device:
+          name: Benachrichtigungs-Gerät
+          description: Das Gerät oder der Dienst, der die Benachrichtigung erhalten
+            soll (z.B. `notify.mobile_app_dein_handy`).
+          selector:
+            device:
+              multiple: true
+              filter:
+              - integration: mobile_app
+        use_area_name:
+          name: Bereichsnamen in Benachrichtigungen verwenden
+          description: Wenn aktiviert, wird der Bereichsname (z.B. "Wohnzimmer") anstelle
+            des langen Sensor-Namens verwendet.
+          default: false
+          selector:
+            boolean: {}
+        sleep_mode_boolean:
+          name: Schlafmodus Helfer (optional)
+          description: Optional. Wenn dieser `input_boolean` 'on' ist, werden keine
+            Benachrichtigungen über offene Fenster gesendet.
+          default: {}
+          selector:
+            entity:
+              domain:
+              - input_boolean
+              reorder: false
+              multiple: false
+mode: parallel
+max: 15
+variables:
+  reclose_timeout_seconds: !input reclose_timeout
+  shutters_list: !input shutters
+  sensors_list: !input window_sensors
+  tilted_position: !input tilted_position
+  force_close: !input force_close
+  force_storm_action: !input force_storm_action
+  panzer_mode: !input panzer_mode
+  weather_entity: !input weather_entity
+  notification_device: !input notification_device
+  use_area_name: !input use_area_name
+  notification_timeout: !input notification_timeout
+  notification_timeout_tilted: !input notification_timeout_tilted
+  device_name_map: "{% set ns = namespace(device_names=[]) %} {% for device_id in
+    notification_device %}\n  {% set device_name = device_attr(device_id, \"name\")
+    %}\n  {% set sanitized_name = \"mobile_app_\" + device_name | slugify  %}\n  {%
+    set ns.device_names = ns.device_names + [sanitized_name] %}\n{% endfor %} {{ ns.device_names
+    }}\n"
+trigger:
+- platform: time
+  at: !input morning_time
+  id: morning_open
+- platform: state
+  entity_id: !input window_sensors
+  to:
+  - 'on'
+  - open
+  - tilted
+  for:
+    seconds: 2
+  id: window_change
+- platform: state
+  entity_id: !input window_sensors
+  to:
+  - 'on'
+  - open
+  for:
+    minutes: !input notification_timeout
+  id: window_open_long
+- platform: state
+  entity_id: !input window_sensors
+  to: tilted
+  for:
+    minutes: !input notification_timeout_tilted
+  id: window_tilted_long
+- platform: state
+  entity_id: !input night_mode_boolean
+  to: 'on'
+  id: night_close
+- platform: numeric_state
+  entity_id: !input weather_entity
+  attribute: wind_speed
+  above: !input wind_speed_threshold
+  id: storm_detected
+- platform: event
+  event_type: mobile_app_notification_action
+  id: close_shutter_action
+action:
+- choose:
+  - conditions:
+    - condition: trigger
+      id: morning_open
+    sequence:
+    - repeat:
+        for_each: '{{ expand(inputs.morning_shutters) | map(attribute=''entity_id'')
+          | list }}'
+        sequence:
+        - condition: template
+          value_template: '{{ state_attr(repeat.item, ''current_position'') | int(101)
+            < inputs.morning_position }}'
+        - service: cover.set_cover_position
+          target:
+            entity_id: '{{ repeat.item }}'
+          data:
+            position: !input morning_position
+  - conditions:
+    - condition: trigger
+      id: night_close
+    sequence:
+    - repeat:
+        for_each: !input shutters
+        sequence:
+        - variables:
+            shutter: '{{ repeat.item }}'
+            sensor: '{{ sensors_list[repeat.index] }}'
+        - choose:
+          - conditions:
+            - '{{ states(sensor) == ''tilted'' }}'
+            sequence:
+            - service: cover.set_cover_position
+              target:
+                entity_id: '{{ shutter }}'
+              data:
+                position: !input tilted_position
+          - conditions:
+            - '{{ states(sensor) in [''on'', ''open''] }}'
+            sequence:
+            - service: cover.set_cover_position
+              target:
+                entity_id: '{{ shutter }}'
+              data:
+                position: 15
+          default:
+          - service: cover.close_cover
+            target:
+              entity_id: '{{ shutter }}'
+  - conditions:
+    - condition: trigger
+      id: storm_detected
+    sequence:
+    - repeat:
+        for_each: !input shutters
+        sequence:
+        - variables:
+            shutter: '{{ repeat.item }}'
+            sensor: '{{ sensors_list[repeat.index] }}'
+        - condition: or
+          conditions:
+          - condition: template
+            value_template: '{{ force_storm_action }}'
+          - condition: template
+            value_template: '{{ states(sensor) in [''off'', ''closed''] }}'
+        - choose:
+          - conditions:
+            - '{{ not panzer_mode }}'
+            sequence:
+            - service: cover.open_cover
+              target:
+                entity_id: '{{ shutter }}'
+          default:
+          - service: cover.close_cover
+            target:
+              entity_id: '{{ shutter }}'
+  - conditions:
+    - condition: trigger
+      id: window_open_long
+    - '{{ not is_state(sleep_mode_boolean, ''on'') if sleep_mode_boolean else true
+      }}'
+    sequence:
+    - variables:
+        action_identifier: '{{ ''CLOSE_SHUTTER__'' ~ trigger.entity_id }}'
+        title_text: "{% if use_area_name and area_name(trigger.entity_id) %}\n  Fenster
+          offen in {{ area_name(trigger.entity_id) }}\n{% else %}\n  Fenster offen\n{%
+          endif %}"
+        message_text: "{% if use_area_name and area_name(trigger.entity_id) %}\n  Das
+          Fenster im Bereich '{{ area_name(trigger.entity_id) }}' ist seit über {{
+          notification_timeout }} Minuten offen.\n{% else %}\n  Fenster '{{ state_attr(trigger.entity_id,
+          \"friendly_name\") }}' ist seit über {{ notification_timeout }} Minuten
+          offen.\n{% endif %}"
+    - repeat:
+        for_each: '{{ device_name_map }}'
+        sequence:
+        - service: notify.{{ repeat.item }}
+          data:
+            message: '{{ message_text }}'
+            title: '{{ title_text }}'
+            data:
+              actions:
+              - action: '{{ action_identifier }}'
+                title: Rollladen schließen
+  - conditions:
+    - condition: trigger
+      id: window_tilted_long
+    - '{{ not is_state(sleep_mode_boolean, ''on'') if sleep_mode_boolean else true
+      }}'
+    sequence:
+    - variables:
+        action_identifier: '{{ ''CLOSE_SHUTTER__'' ~ trigger.entity_id }}'
+        title_text: "{% if use_area_name and area_name(trigger.entity_id) %}\n  Fenster
+          gekippt in {{ area_name(trigger.entity_id) }}\n{% else %}\n  Fenster gekippt\n{%
+          endif %}"
+        message_text: "{% if use_area_name and area_name(trigger.entity_id) %}\n  Das
+          Fenster im Bereich '{{ area_name(trigger.entity_id) }}' ist seit über {{
+          notification_timeout_tilted }} Minuten gekippt.\n{% else %}\n  Fenster '{{
+          state_attr(trigger.entity_id, \"friendly_name\") }}' ist seit über {{ notification_timeout_tilted
+          }} Minuten gekippt.\n{% endif %}"
+    - repeat:
+        for_each: '{{ device_name_map }}'
+        sequence:
+        - service: notify.{{ repeat.item }}
+          data:
+            message: '{{ message_text }}'
+            title: '{{ title_text }}'
+            data:
+              actions:
+              - action: '{{ action_identifier }}'
+                title: Rollladen schließen
+  - conditions:
+    - condition: trigger
+      id: close_shutter_action
+    - '{{ trigger.event.data.action.startswith(''CLOSE_SHUTTER__'') }}'
+    sequence:
+    - variables:
+        action_name: '{{ trigger.event.data.action }}'
+        sensor_id: '{{ action_name.split(''__'')[1] }}'
+        sensor_index: '{{ sensors_list.index(sensor_id) }}'
+        shutter_to_close: '{{ shutters_list[sensor_index] }}'
+    - service: cover.close_cover
+      target:
+        entity_id: '{{ shutter_to_close }}'
+  - conditions:
+    - condition: trigger
+      id: window_change
+    sequence:
+    - variables:
+        triggered_sensor: '{{ trigger.entity_id }}'
+        triggered_index: '{{ sensors_list.index(triggered_sensor) }}'
+        shutter: '{{ shutters_list[triggered_index] }}'
+    - service: scene.create
+      data:
+        scene_id: '{{ ''reclose_'' ~ (shutter | slugify) }}'
+        snapshot_entities:
+        - '{{ shutter }}'
+    - choose:
+      - conditions:
+        - '{{ trigger.to_state.state == ''tilted'' }}'
+        - '{{ state_attr(shutter, ''current_position'') | int(101) < tilted_position
+          }}'
+        sequence:
+        - service: cover.set_cover_position
+          data:
+            position: !input tilted_position
+          target:
+            entity_id: '{{ shutter }}'
+      - conditions:
+        - '{{ trigger.to_state.state in [''on'', ''open''] }}'
+        sequence:
+        - service: cover.open_cover
+          target:
+            entity_id: '{{ shutter }}'
+    - wait_for_trigger:
+      - platform: template
+        value_template: '{{ states(triggered_sensor) in [''off'', ''closed''] }}'
+      timeout:
+        minutes: '{{ reclose_timeout_seconds }}'
+      continue_on_timeout: true
+    - if:
+      - '{{ wait.completed }}'
+      then:
+      - service: scene.turn_on
+        target:
+          entity_id: scene.{{ 'reclose_' ~ (shutter | slugify) }}
+      else:
+      - if: '{{ force_close }}'
+        then:
+        - service: cover.close_cover
+          target:
+            entity_id: '{{ shutter }}'
