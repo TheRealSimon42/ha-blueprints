@@ -1,4 +1,4 @@
-<svg viewBox="0 0 700 470" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="svgtitle svgdesc" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
+<svg viewBox="0 0 700 475" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="svgtitle svgdesc" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
   <title id="svgtitle">Sichtfeld eines Fensters von oben</title>
   <desc id="svgdesc">Draufsicht: Ein Fenster in einer Wand. Ein Halbkreis von 90 Grad links bis 90 Grad rechts zeigt den Bereich, aus dem die Sonne das Fenster treffen kann. Eine Sonne hinter der Wandebene kann nicht einfallen.</desc>
   <defs>
@@ -6,31 +6,31 @@
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#77766f"/>
     </marker>
   </defs>
-  <rect x="1" y="1" width="698" height="468" rx="12" fill="#ffffff" stroke="#dddbd2"/>
+  <rect x="1" y="1" width="698" height="473" rx="12" fill="#ffffff" stroke="#dddbd2"/>
   <path d="M 160 330 A 190 190 0 0 1 540 330 Z" fill="#EF9F27" fill-opacity="0.14" stroke="#BA7517" stroke-width="1.5"/>
+  <rect x="40" y="330" width="270" height="12" fill="#9b9992"/>
+  <rect x="390" y="330" width="270" height="12" fill="#9b9992"/>
+  <rect x="310" y="328" width="80" height="16" rx="3" fill="#378ADD"/>
+  <rect x="215" y="342" width="270" height="58" fill="#f1efe8"/>
   <line x1="350" y1="330" x2="350" y2="128" stroke="#77766f" stroke-width="1.5" stroke-dasharray="6 5" marker-end="url(#arr)"/>
   <line x1="350" y1="330" x2="216" y2="196" stroke="#77766f" stroke-width="1" stroke-dasharray="3 5"/>
   <path d="M 350 268 A 62 62 0 0 0 306 286" fill="none" stroke="#77766f" stroke-width="1"/>
-  <text x="312" y="262" fill="#5f5e5a" font-size="12">45°</text>
-  <text x="358" y="150" fill="#5f5e5a" font-size="12">0° = Fensterausrichtung (Azimut)</text>
-  <circle cx="293" cy="118" r="13" fill="#EF9F27"/>
-  <line x1="302" y1="130" x2="336" y2="310" stroke="#77766f" stroke-width="1.2" marker-end="url(#arr)"/>
-  <text x="255" y="93" fill="#33322f" font-size="13">Sonne fast frontal</text>
-  <text x="255" y="110" fill="#5f5e5a" font-size="12">tiefster Einfall, stärkste Beschattung</text>
+  <circle cx="280" cy="135" r="13" fill="#EF9F27"/>
+  <line x1="287" y1="147" x2="338" y2="311" stroke="#77766f" stroke-width="1.2" marker-end="url(#arr)"/>
   <circle cx="565" cy="270" r="13" fill="#EF9F27"/>
   <line x1="552" y1="278" x2="372" y2="322" stroke="#77766f" stroke-width="1.2" marker-end="url(#arr)"/>
-  <text x="470" y="238" fill="#33322f" font-size="13">Sonne bei ~75°</text>
-  <text x="440" y="255" fill="#5f5e5a" font-size="12">streifender Einfall, Rollladen bleibt offener</text>
-  <circle cx="105" cy="395" r="13" fill="#b4b2a9"/>
-  <text x="128" y="392" fill="#33322f" font-size="13">Sonne über 90°</text>
-  <text x="128" y="409" fill="#5f5e5a" font-size="12">hinter der Fensterebene, kein direkter Einfall</text>
-  <text x="163" y="352" fill="#5f5e5a" font-size="12">90° links</text>
-  <text x="488" y="352" fill="#5f5e5a" font-size="12">90° rechts</text>
-  <rect x="60" y="330" width="250" height="12" fill="#9b9992"/>
-  <rect x="390" y="330" width="250" height="12" fill="#9b9992"/>
-  <rect x="310" y="328" width="80" height="16" rx="3" fill="#378ADD"/>
-  <text x="350" y="365" fill="#33322f" font-size="13" text-anchor="middle">Fenster</text>
-  <rect x="170" y="342" width="360" height="86" fill="#f1efe8"/>
-  <text x="350" y="400" fill="#5f5e5a" font-size="13" text-anchor="middle">innen — du stehst hier und schaust raus:</text>
-  <text x="350" y="418" fill="#5f5e5a" font-size="13" text-anchor="middle">links im Bild = Sichtfeld links</text>
+  <circle cx="105" cy="438" r="13" fill="#b4b2a9"/>
+  <text x="180" y="80" fill="#33322f" font-size="13">Sonne fast frontal</text>
+  <text x="180" y="97" fill="#5f5e5a" font-size="12">tiefster Einfall, stärkste Beschattung</text>
+  <text x="362" y="118" fill="#5f5e5a" font-size="12">0° = Fensterausrichtung (Azimut)</text>
+  <text x="300" y="262" fill="#5f5e5a" font-size="12" text-anchor="end">45°</text>
+  <text x="470" y="236" fill="#33322f" font-size="13">Sonne bei ~75°</text>
+  <text x="440" y="253" fill="#5f5e5a" font-size="12">streifender Einfall, Rollladen bleibt offener</text>
+  <text x="95" y="356" fill="#5f5e5a" font-size="12">90° links</text>
+  <text x="545" y="356" fill="#5f5e5a" font-size="12">90° rechts</text>
+  <text x="350" y="366" fill="#33322f" font-size="13" text-anchor="middle">Fenster</text>
+  <text x="350" y="382" fill="#5f5e5a" font-size="12" text-anchor="middle">innen — du stehst hier und schaust raus:</text>
+  <text x="350" y="396" fill="#5f5e5a" font-size="12" text-anchor="middle">links im Bild = Sichtfeld links</text>
+  <text x="127" y="435" fill="#33322f" font-size="13">Sonne über 90°</text>
+  <text x="127" y="452" fill="#5f5e5a" font-size="12">hinter der Fensterebene, kein direkter Einfall</text>
 </svg>
