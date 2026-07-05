@@ -312,6 +312,16 @@ blueprint:
               step: 1
               mode: slider
               unit_of_measurement: "%"
+        force_shading:
+          name: Beschattung erzwingen
+          description: >
+            Wenn aktiviert, wird auch bei komplett geöffnetem Fenster beschattet —
+            praktisch, damit es nicht aufheizt, wenn man das Fenster mal vergisst.
+            Als Lüftungsspalt bleibt dabei mindestens die Kipp-Position stehen.
+            ⚠️ Achtung: Für Balkon- und Terrassentüren nicht empfohlen — Aussperr-Gefahr!
+          default: false
+          selector:
+            boolean: {}
     mosquito_section:
       name: Moskito-Modus
       description: >
@@ -524,6 +534,7 @@ variables:
   shading_temp_threshold: !input shading_temp_threshold
   shading_temp_hysteresis: !input shading_temp_hysteresis
   shading_min_change: !input shading_min_change
+  force_shading: !input force_shading
   mosquito_area_input: !input mosquito_area
   mosquito_exclude: !input mosquito_exclude
   sleep_mode_boolean: !input sleep_mode_boolean
@@ -724,7 +735,7 @@ actions:
                   - "{{ sun_in_window and outdoor_temp >= shading_temp_threshold }}"
                   - "{{ storm_ok }}"
                   - "{{ not (night_mode_boolean is string and is_state(night_mode_boolean, 'on')) }}"
-                  - "{{ states(window_sensor) not in ['on', 'open'] }}"
+                  - "{{ force_shading or states(window_sensor) not in ['on', 'open'] }}"
                 sequence:
                   - variables:
                       # Höhe (über dem Boden), auf der ein Sonnenstrahl die Fensterebene
@@ -736,7 +747,7 @@ actions:
                         {% set raw = ((ray_height - window_sill_height) / window_height * 100) | round(0) | int %}
                         {% set p = [raw, shading_min_position | int, 0] | max %}
                         {% set p = [p, 100] | min %}
-                        {% if states(window_sensor) == 'tilted' %}
+                        {% if states(window_sensor) in ['tilted', 'on', 'open'] %}
                           {{ [p, tilted_position | int] | max }}
                         {% else %}
                           {{ p }}
@@ -882,6 +893,8 @@ actions:
               - conditions:
                   - "{{ trigger.to_state.state in ['on', 'open'] }}"
                   - "{{ not night_mode_on }}"
+                  # Bei aktiver erzwungener Beschattung bleibt der Rollladen unten
+                  - "{{ not (force_shading and shading_status_helper is string and is_state(shading_status_helper, 'on')) }}"
                 sequence:
                   - action: cover.open_cover
                     target:
