@@ -1,0 +1,949 @@
+blueprint:
+  name: s42 - Intelligente Rollladensteuerung V2 (ein Rollladen pro Automation)
+  description: >
+    Steuert einen einzelnen Rollladen anhand "seines" Fensters: morgendliches Öffnen,
+    Reaktion auf gekippte/geöffnete Fenster inkl. Rückfahr-Logik, Nachtmodus, Sturmschutz,
+    automatische Beschattung anhand des Sonnenstands (Sonnenschutz) sowie ein Moskito-Modus,
+    der beim Öffnen des Fensters nach Sonnenuntergang die Lichter im Raum ausschaltet.
+
+
+    Pro Fenster/Rollladen wird eine eigene Automation aus diesem Blueprint erstellt.
+    Gemeinsame Helfer (z.B. das input_datetime für morgens oder der Nachtmodus-Helfer)
+    werden einfach in allen Instanzen identisch ausgewählt.
+  domain: automation
+  author: TheRealSimon42
+  homeassistant:
+    min_version: "2024.10.0"
+  source_url: https://raw.githubusercontent.com/TheRealSimon42/ha-blueprints/main/automations/cover_automation_v2.yaml
+  input:
+    assignment_section:
+      name: Zuordnung
+      description: Der Rollladen und der zugehörige Fenstersensor.
+      icon: mdi:vector-link
+      input:
+        cover:
+          name: Rollladen
+          description: Der Rollladen, den diese Automation steuert.
+          selector:
+            entity:
+              domain: cover
+        window_sensor:
+          name: Fenstersensor
+          description: >
+            Der Fensterkontakt zu diesem Rollladen. Drei-Zustands-Sensoren
+            (offen/gekippt/geschlossen, z.B. Homematic IP) werden unterstützt.
+          selector:
+            entity:
+              domain:
+                - binary_sensor
+                - sensor
+    morning_section:
+      name: Morgens öffnen
+      description: Einstellungen für das automatische Öffnen am Morgen.
+      icon: mdi:weather-sunset-up
+      collapsed: true
+      input:
+        morning_enabled:
+          name: Morgens öffnen aktivieren
+          default: true
+          selector:
+            boolean: {}
+        morning_time:
+          name: Uhrzeit für morgendliches Hochfahren
+          description: >
+            Ein input_datetime-Helfer mit der Uhrzeit für das Hochfahren
+            (erforderlich, wenn "Morgens öffnen" aktiviert ist).
+            In allen Blueprint-Instanzen denselben Helfer auswählen.
+          default: []
+          selector:
+            entity:
+              domain: input_datetime
+        morning_position:
+          name: Zielposition für morgens
+          description: >
+            Die Position (in %), auf die der Rollladen morgens fährt. Es wird nur
+            gefahren, wenn der Rollladen geschlossener ist als diese Position.
+          default: 100
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 1
+              mode: slider
+              unit_of_measurement: "%"
+    window_interaction_section:
+      name: Fenster-Interaktion
+      description: Wie der Rollladen auf geöffnete oder gekippte Fenster reagiert.
+      icon: mdi:window-open-variant
+      collapsed: true
+      input:
+        tilted_position:
+          name: Zielposition für gekipptes Fenster
+          description: >
+            Die Position (in %), auf die der Rollladen fährt, wenn das Fenster gekippt
+            wird. Es wird nur gefahren, wenn der Rollladen geschlossener ist.
+          default: 20
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 1
+              mode: slider
+              unit_of_measurement: "%"
+        reclose_timeout:
+          name: Zeitfenster für automatisches Zurückfahren
+          description: >
+            Wird das Fenster innerhalb dieser Zeit wieder geschlossen, fährt der
+            Rollladen in seine Ausgangsposition zurück.
+          default: 30
+          selector:
+            number:
+              min: 1
+              max: 120
+              step: 1
+              mode: slider
+              unit_of_measurement: Minuten
+        force_close:
+          name: Schließen erzwingen
+          description: >
+            Wenn aktiviert, wird der Rollladen nach Ablauf des Zeitfensters immer
+            geschlossen, auch wenn das Fenster noch offen ist.
+            ⚠️ Achtung: Aussperr-Gefahr!
+          default: false
+          selector:
+            boolean: {}
+    shading_section:
+      name: Sonnenschutz (Beschattung)
+      description: >
+        Fährt den Rollladen anhand des Sonnenstands automatisch so weit herunter, dass
+        die Sonne höchstens bis zur eingestellten Tiefe in den Raum scheint — und wieder
+        hoch, sobald die Sonne nicht mehr ins Fenster scheint oder es abgekühlt ist.
+        Sehr schräg einfallende Sonne wird dabei automatisch berücksichtigt: je flacher
+        der Winkel, desto weiter oben bleibt der Rollladen.
+        ⚠️ Benötigt einen eigenen input_boolean-Helfer pro Fenster als Status-Speicher.
+
+
+        Zur Bedeutung von Ausrichtung und Sichtfeld:
+
+        ![Erklärgrafik Sichtfeld](https://cdn.jsdelivr.net/gh/TheRealSimon42/ha-blueprints@main/images/sichtfeld_beschattung.svg)
+      icon: mdi:sun-wireless
+      collapsed: true
+      input:
+        shading_enabled:
+          name: Sonnenschutz aktivieren
+          description: >
+            Benötigt zwingend den Status-Helfer (nächstes Feld) — ohne ihn bleibt der
+            Sonnenschutz wirkungslos.
+          default: false
+          selector:
+            boolean: {}
+        shading_status_helper:
+          name: Status-Helfer (input_boolean)
+          description: >
+            Erforderlich für den Sonnenschutz: ein input_boolean-Helfer NUR für dieses
+            Fenster. Er merkt sich, ob die Beschattung aktiv ist, damit der Rollladen
+            danach zuverlässig wieder geöffnet wird (auch über Neustarts hinweg).
+          default: []
+          selector:
+            entity:
+              domain: input_boolean
+        window_azimuth:
+          name: Ausrichtung des Fensters
+          description: >
+            Himmelsrichtung, in die das Fenster zeigt, in Grad
+            (0 = Nord, 90 = Ost, 180 = Süd, 270 = West).
+          default: 180
+          selector:
+            number:
+              min: 0
+              max: 359
+              step: 1
+              mode: slider
+              unit_of_measurement: °
+        shading_fov_left:
+          name: Sichtfeld links
+          description: >
+            Wie weit die Sonne seitlich links von der Fensterausrichtung stehen darf
+            und noch als "scheint ins Fenster" gilt. 90° ist das geometrische Maximum —
+            die Sonne steht dann genau in der Fassadenebene und kann das Fenster gerade
+            noch treffen. Nur verkleinern, wenn auf dieser Seite ein Hindernis die Sonne
+            blockiert (tiefe Laibung, Balkon, Nachbarhaus). Links/rechts gilt von innen
+            am Fenster stehend mit Blick nach draußen — bei einem Südfenster ist links
+            die Vormittagsseite (Osten).
+          default: 90
+          selector:
+            number:
+              min: 0
+              max: 90
+              step: 1
+              mode: slider
+              unit_of_measurement: °
+        shading_fov_right:
+          name: Sichtfeld rechts
+          description: >
+            Wie Sichtfeld links, nur rechts der Fensterausrichtung — bei einem
+            Südfenster die Nachmittags-/Abendseite (Westen).
+          default: 90
+          selector:
+            number:
+              min: 0
+              max: 90
+              step: 1
+              mode: slider
+              unit_of_measurement: °
+        shading_min_elevation:
+          name: Minimale Sonnenhöhe
+          description: >
+            Unterhalb dieser Sonnenhöhe (Elevation in Grad) wird nicht beschattet,
+            z.B. weil Nachbargebäude oder Bäume die tiefe Sonne ohnehin blockieren.
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 45
+              step: 1
+              mode: slider
+              unit_of_measurement: °
+        window_height:
+          name: Fensterhöhe
+          description: Höhe der Glasfläche in Metern.
+          default: 1.3
+          selector:
+            number:
+              min: 0.3
+              max: 3.5
+              step: 0.05
+              mode: box
+              unit_of_measurement: m
+        window_sill_height:
+          name: Brüstungshöhe
+          description: Höhe der Fensterunterkante über dem Fußboden in Metern (bei bodentiefen Fenstern 0).
+          default: 0.9
+          selector:
+            number:
+              min: 0
+              max: 2.5
+              step: 0.05
+              mode: box
+              unit_of_measurement: m
+        shading_depth:
+          name: Maximale Sonneneinfall-Tiefe
+          description: >
+            Wie weit die Sonne maximal in den Raum scheinen darf (auf dem Fußboden
+            gemessen, ab Fensterebene). Kleinere Werte = strengere Beschattung;
+            bei sehr kleinen Werten fährt der Rollladen praktisch komplett zu.
+          default: 1.0
+          selector:
+            number:
+              min: 0
+              max: 3
+              step: 0.1
+              mode: box
+              unit_of_measurement: m
+        shading_min_position:
+          name: Minimale Beschattungsposition
+          description: >
+            Tiefer als diese Position fährt die Beschattung nicht (z.B. 10 %, damit
+            immer etwas Tageslicht bleibt). 0 = ganz schließen erlaubt.
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 1
+              mode: slider
+              unit_of_measurement: "%"
+        shading_end_position:
+          name: Position nach der Beschattung
+          description: Position, auf die nach Ende der Beschattung gefahren wird.
+          default: 100
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 1
+              mode: slider
+              unit_of_measurement: "%"
+        shading_temp_sensor:
+          name: Außentemperatur-Sensor (optional)
+          description: >
+            Optionaler Temperatursensor für die Beschattungs-Bedingung. Wenn leer,
+            wird die Temperatur der Wetter-Entität aus dem Sturmschutz verwendet —
+            eines von beiden muss gesetzt sein, sonst startet die Beschattung nie.
+          default: []
+          selector:
+            entity:
+              domain: sensor
+              device_class: temperature
+        shading_temp_threshold:
+          name: Temperatur-Schwelle
+          description: Beschattet wird nur, wenn die Außentemperatur über diesem Wert liegt.
+          default: 25
+          selector:
+            number:
+              min: 10
+              max: 40
+              step: 0.5
+              mode: slider
+              unit_of_measurement: °C
+        shading_temp_hysteresis:
+          name: Temperatur-Hysterese
+          description: >
+            Die Beschattung endet erst, wenn die Temperatur um diesen Wert unter die
+            Schwelle gefallen ist (verhindert ständiges Auf und Ab).
+          default: 2
+          selector:
+            number:
+              min: 0
+              max: 5
+              step: 0.5
+              mode: slider
+              unit_of_measurement: °C
+        shading_min_change:
+          name: Minimale Positionsänderung
+          description: >
+            Der Rollladen wird beim Nachführen nur bewegt, wenn sich die Zielposition
+            um mindestens diesen Wert von der aktuellen unterscheidet (schont den Motor).
+          default: 5
+          selector:
+            number:
+              min: 1
+              max: 25
+              step: 1
+              mode: slider
+              unit_of_measurement: "%"
+    mosquito_section:
+      name: Moskito-Modus
+      description: >
+        Schaltet die Lichter im Raum aus, wenn das Fenster nach Einbruch der Dunkelheit
+        geöffnet oder gekippt wird — damit das Licht keine Insekten anlockt.
+      icon: mdi:bug
+      collapsed: true
+      input:
+        mosquito_enabled:
+          name: Moskito-Modus aktivieren
+          default: false
+          selector:
+            boolean: {}
+        mosquito_area:
+          name: Bereich (optional)
+          description: >
+            Der Bereich, dessen Lichter ausgeschaltet werden. Wenn leer, wird
+            automatisch der Bereich des Fenstersensors verwendet.
+          default: ""
+          selector:
+            area: {}
+        mosquito_exclude:
+          name: Ausnahmen
+          description: >
+            Diese Lichter bleiben an (z.B. eine rote Stehlampe fürs Baby).
+          default: []
+          selector:
+            entity:
+              domain: light
+              multiple: true
+        mosquito_after_time:
+          name: Frühestens ab (optional)
+          description: >
+            Zusätzliche Zeitbedingung: Der Moskito-Modus greift erst ab dieser Uhrzeit
+            (und nur, wenn die Sonne unter dem Horizont ist). 00:00:00 = keine Einschränkung.
+          default: "00:00:00"
+          selector:
+            time: {}
+    night_mode_section:
+      name: Nachtmodus
+      description: Schließen der Rollläden bei Nacht über einen gemeinsamen Helfer.
+      icon: mdi:weather-night
+      collapsed: true
+      input:
+        night_mode_boolean:
+          name: Nachtmodus-Helfer (optional)
+          description: >
+            Ein input_boolean-Helfer. Wird er eingeschaltet, fährt der Rollladen für
+            die Nacht herunter. Leer lassen, wenn kein Nachtmodus gewünscht ist.
+            In allen Blueprint-Instanzen denselben Helfer auswählen.
+          default: []
+          selector:
+            entity:
+              domain: input_boolean
+        night_ventilation_position:
+          name: Nachtposition bei offenem Fenster
+          description: >
+            Position (in %), auf die nachts gefahren wird, wenn das Fenster komplett
+            offen ist. Bei gekipptem Fenster wird die Kipp-Position verwendet.
+          default: 15
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 1
+              mode: slider
+              unit_of_measurement: "%"
+    storm_protection_section:
+      name: Sturmschutz
+      description: Fährt den Rollladen bei starkem Wind hoch (oder im Panzer-Modus herunter).
+      icon: mdi:weather-windy
+      collapsed: true
+      input:
+        storm_enabled:
+          name: Sturmschutz aktivieren
+          description: Benötigt eine Wetter-Entität oder einen Wind-Sensor (unten auswählen).
+          default: false
+          selector:
+            boolean: {}
+        weather_entity:
+          name: Wetter-Entität
+          description: >
+            Deine Wetter-Entität (z.B. von DWD oder der Standard-Integration).
+            Für den Sturmschutz wird ihr wind_speed-Attribut verwendet, sofern kein
+            Wind-Sensor gesetzt ist; außerdem dient sie als Temperatur-Fallback
+            für den Sonnenschutz.
+          default: []
+          selector:
+            entity:
+              domain: weather
+        storm_wind_sensor:
+          name: Wind-Sensor (optional)
+          description: >
+            Alternativ zur Wetter-Entität: ein Sensor mit Windgeschwindigkeit, z.B.
+            der Böen-Sensor deiner Wetterstation (Böen sind für den Sturmschutz meist
+            aussagekräftiger als der Mittelwind). Wenn gesetzt, hat er Vorrang vor
+            der Wetter-Entität.
+          default: []
+          selector:
+            entity:
+              domain: sensor
+              device_class: wind_speed
+        wind_speed_threshold:
+          name: Windgeschwindigkeit-Grenzwert
+          description: >
+            Ab dieser Windgeschwindigkeit wird der Sturmschutz ausgelöst (ca. 55 km/h
+            empfohlen). Wichtig: Der Wert wird direkt mit dem Sensorwert bzw. dem
+            wind_speed-Attribut der Wetter-Entität verglichen — liefert deine Quelle
+            m/s oder mph statt km/h, muss der Grenzwert entsprechend umgerechnet werden.
+          default: 55
+          selector:
+            number:
+              min: 30
+              max: 120
+              step: 1
+              mode: slider
+              unit_of_measurement: km/h
+        panzer_mode:
+          name: Panzer-Modus
+          description: Wenn aktiviert, wird der Rollladen bei Sturm geschlossen statt geöffnet.
+          default: false
+          selector:
+            boolean: {}
+        force_storm_action:
+          name: Aktion bei Sturm erzwingen
+          description: >
+            Wenn aktiviert, wird der Rollladen bei Sturm auch bewegt, wenn das Fenster
+            offen ist. ⚠️ Achtung: Aussperr-Gefahr!
+          default: false
+          selector:
+            boolean: {}
+    notification_section:
+      name: Benachrichtigungen
+      description: Benachrichtigungen bei zu lange offenem oder gekipptem Fenster.
+      icon: mdi:bell
+      collapsed: true
+      input:
+        notification_device:
+          name: Benachrichtigungs-Geräte
+          description: Geräte mit der Home Assistant Companion App. Leer = keine Benachrichtigungen.
+          default: []
+          selector:
+            device:
+              multiple: true
+              filter:
+                - integration: mobile_app
+        notification_timeout:
+          name: Benachrichtigung nach X Min. (Fenster offen)
+          default: 45
+          selector:
+            number:
+              min: 5
+              max: 240
+              step: 1
+              mode: slider
+              unit_of_measurement: Minuten
+        notification_timeout_tilted:
+          name: Benachrichtigung nach X Min. (Fenster gekippt)
+          default: 60
+          selector:
+            number:
+              min: 5
+              max: 480
+              step: 1
+              mode: slider
+              unit_of_measurement: Minuten
+        use_area_name:
+          name: Bereichsnamen in Benachrichtigungen verwenden
+          description: Wenn aktiviert, wird der Bereichsname (z.B. "Wohnzimmer") statt des Sensor-Namens verwendet.
+          default: false
+          selector:
+            boolean: {}
+        sleep_mode_boolean:
+          name: Schlafmodus-Helfer (optional)
+          description: Wenn dieser input_boolean 'on' ist, werden keine Benachrichtigungen gesendet.
+          default: []
+          selector:
+            entity:
+              domain: input_boolean
+
+mode: parallel
+max: 20
+
+variables:
+  cover_entity: !input cover
+  window_sensor: !input window_sensor
+  tilted_position: !input tilted_position
+  reclose_timeout: !input reclose_timeout
+  force_close: !input force_close
+  morning_position: !input morning_position
+  night_mode_boolean: !input night_mode_boolean
+  night_ventilation_position: !input night_ventilation_position
+  storm_enabled: !input storm_enabled
+  weather_entity: !input weather_entity
+  storm_wind_sensor: !input storm_wind_sensor
+  wind_speed_threshold: !input wind_speed_threshold
+  panzer_mode: !input panzer_mode
+  force_storm_action: !input force_storm_action
+  shading_status_helper: !input shading_status_helper
+  window_azimuth: !input window_azimuth
+  shading_fov_left: !input shading_fov_left
+  shading_fov_right: !input shading_fov_right
+  shading_min_elevation: !input shading_min_elevation
+  window_height: !input window_height
+  window_sill_height: !input window_sill_height
+  shading_depth: !input shading_depth
+  shading_min_position: !input shading_min_position
+  shading_end_position: !input shading_end_position
+  shading_temp_sensor: !input shading_temp_sensor
+  shading_temp_threshold: !input shading_temp_threshold
+  shading_temp_hysteresis: !input shading_temp_hysteresis
+  shading_min_change: !input shading_min_change
+  mosquito_area_input: !input mosquito_area
+  mosquito_exclude: !input mosquito_exclude
+  sleep_mode_boolean: !input sleep_mode_boolean
+  use_area_name: !input use_area_name
+  notification_timeout: !input notification_timeout
+  notification_timeout_tilted: !input notification_timeout_tilted
+  notification_device: !input notification_device
+  action_id: "{{ 'CLOSE_SHUTTER__' ~ window_sensor }}"
+  device_name_map: >
+    {% set ns = namespace(device_names=[]) %}
+    {% for device_id in notification_device %}
+      {% set device_name = device_attr(device_id, "name") %}
+      {% if device_name %}
+        {% set ns.device_names = ns.device_names + ["mobile_app_" + device_name | slugify] %}
+      {% endif %}
+    {% endfor %}
+    {{ ns.device_names }}
+
+# Nur für Trigger-Templates: filtert den Notification-Action-Event bereits im
+# Trigger, damit nicht jede Notification-Action jeder Instanz einen Lauf startet
+trigger_variables:
+  window_sensor_tv: !input window_sensor
+
+triggers:
+  - trigger: time
+    at: !input morning_time
+    id: morning_open
+    enabled: !input morning_enabled
+  - trigger: state
+    entity_id: !input window_sensor
+    to:
+      - "on"
+      - "open"
+      - "tilted"
+    for:
+      seconds: 2
+    id: window_change
+  - trigger: state
+    entity_id: !input window_sensor
+    to:
+      - "on"
+      - "open"
+    for:
+      minutes: !input notification_timeout
+    id: window_open_long
+  - trigger: state
+    entity_id: !input window_sensor
+    to: "tilted"
+    for:
+      minutes: !input notification_timeout_tilted
+    id: window_tilted_long
+  - trigger: state
+    entity_id: !input night_mode_boolean
+    to: "on"
+    id: night_close
+  - trigger: numeric_state
+    entity_id: !input weather_entity
+    attribute: wind_speed
+    above: !input wind_speed_threshold
+    id: storm_detected
+    enabled: !input storm_enabled
+  - trigger: numeric_state
+    entity_id: !input storm_wind_sensor
+    above: !input wind_speed_threshold
+    id: storm_detected
+    enabled: !input storm_enabled
+  - trigger: event
+    event_type: mobile_app_notification_action
+    event_data:
+      action: "CLOSE_SHUTTER__{{ window_sensor_tv }}"
+    id: close_shutter_action
+  - trigger: time_pattern
+    minutes: "/5"
+    id: shading_tick
+    enabled: !input shading_enabled
+  - trigger: state
+    entity_id: !input window_sensor
+    to:
+      - "on"
+      - "open"
+      - "tilted"
+    for:
+      seconds: 2
+    id: mosquito_lights
+    enabled: !input mosquito_enabled
+
+actions:
+  - choose:
+      # --- MORGENS ÖFFNEN ---
+      - conditions:
+          - condition: trigger
+            id: morning_open
+        sequence:
+          - choose:
+              - conditions:
+                  - "{{ state_attr(cover_entity, 'current_position') is not none }}"
+                  - "{{ state_attr(cover_entity, 'current_position') | int(101) < morning_position }}"
+                sequence:
+                  - action: cover.set_cover_position
+                    target:
+                      entity_id: !input cover
+                    data:
+                      position: !input morning_position
+              # Fallback für Cover ohne Positions-Attribut
+              - conditions:
+                  - "{{ state_attr(cover_entity, 'current_position') is none }}"
+                sequence:
+                  - action: cover.open_cover
+                    target:
+                      entity_id: !input cover
+
+      # --- NACHTMODUS ---
+      - conditions:
+          - condition: trigger
+            id: night_close
+        sequence:
+          # Beschattungs-Status zurücksetzen: Die Nacht beendet die Beschattung,
+          # sonst springt der Rollladen morgens beim ersten Tick auf die End-Position
+          - if:
+              - "{{ shading_status_helper is string and is_state(shading_status_helper, 'on') }}"
+            then:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: "{{ shading_status_helper }}"
+          - choose:
+              - conditions:
+                  - "{{ states(window_sensor) == 'tilted' }}"
+                sequence:
+                  - action: cover.set_cover_position
+                    target:
+                      entity_id: !input cover
+                    data:
+                      position: !input tilted_position
+              - conditions:
+                  - "{{ states(window_sensor) in ['on', 'open'] }}"
+                sequence:
+                  - action: cover.set_cover_position
+                    target:
+                      entity_id: !input cover
+                    data:
+                      position: !input night_ventilation_position
+            default:
+              - action: cover.close_cover
+                target:
+                  entity_id: !input cover
+
+      # --- STURMSCHUTZ ---
+      - conditions:
+          - condition: trigger
+            id: storm_detected
+          - "{{ force_storm_action or states(window_sensor) in ['off', 'closed'] }}"
+        sequence:
+          - if:
+              - "{{ not panzer_mode }}"
+            then:
+              - action: cover.open_cover
+                target:
+                  entity_id: !input cover
+            else:
+              - action: cover.close_cover
+                target:
+                  entity_id: !input cover
+
+      # --- SONNENSCHUTZ ---
+      - conditions:
+          - condition: trigger
+            id: shading_tick
+          - "{{ shading_status_helper is string }}"
+        sequence:
+          - variables:
+              sun_elevation: "{{ state_attr('sun.sun', 'elevation') | float(0) }}"
+              sun_azimuth: "{{ state_attr('sun.sun', 'azimuth') | float(0) }}"
+              az_diff: "{{ ((sun_azimuth - window_azimuth + 180) % 360) - 180 }}"
+              sun_in_window: >-
+                {{ sun_elevation >= shading_min_elevation
+                   and az_diff >= (0 - shading_fov_left)
+                   and az_diff <= shading_fov_right }}
+              outdoor_temp: >-
+                {% if shading_temp_sensor is string %}
+                  {{ states(shading_temp_sensor) | float(-99) }}
+                {% elif weather_entity is string %}
+                  {{ state_attr(weather_entity, 'temperature') | float(-99) }}
+                {% else %}
+                  -99
+                {% endif %}
+              wind_now: >-
+                {% if storm_wind_sensor is string %}
+                  {{ states(storm_wind_sensor) | float(0) }}
+                {% elif weather_entity is string %}
+                  {{ state_attr(weather_entity, 'wind_speed') | float(0) }}
+                {% else %}
+                  0
+                {% endif %}
+              storm_ok: "{{ not storm_enabled or (wind_now | float(0)) < wind_speed_threshold }}"
+          - choose:
+              # Beschattung starten / der Sonne nachführen
+              - conditions:
+                  - "{{ sun_in_window and outdoor_temp >= shading_temp_threshold }}"
+                  - "{{ storm_ok }}"
+                  - "{{ not (night_mode_boolean is string and is_state(night_mode_boolean, 'on')) }}"
+                  - "{{ states(window_sensor) not in ['on', 'open'] }}"
+                sequence:
+                  - variables:
+                      # Höhe (über dem Boden), auf der ein Sonnenstrahl die Fensterebene
+                      # durchqueren darf, damit er maximal shading_depth tief in den Raum fällt
+                      ray_height: >-
+                        {{ shading_depth * tan(sun_elevation * pi / 180)
+                           / ([cos(az_diff * pi / 180), 0.087] | max) }}
+                      target_position: >-
+                        {% set raw = ((ray_height - window_sill_height) / window_height * 100) | round(0) | int %}
+                        {% set p = [raw, shading_min_position | int, 0] | max %}
+                        {% set p = [p, 100] | min %}
+                        {% if states(window_sensor) == 'tilted' %}
+                          {{ [p, tilted_position | int] | max }}
+                        {% else %}
+                          {{ p }}
+                        {% endif %}
+                      current_position: "{{ state_attr(cover_entity, 'current_position') | int(-1) }}"
+                  - condition: "{{ current_position >= 0 and (current_position - target_position | int) | abs >= shading_min_change }}"
+                  - action: cover.set_cover_position
+                    target:
+                      entity_id: !input cover
+                    data:
+                      position: "{{ target_position }}"
+                  # Erst nach erfolgreichem Verfahren als "aktiv" markieren — so fasst
+                  # das Beschattungs-Ende nur Rollläden an, die wir selbst bewegt haben
+                  - action: input_boolean.turn_on
+                    target:
+                      entity_id: "{{ shading_status_helper }}"
+              # Beschattung beenden
+              - conditions:
+                  - "{{ is_state(shading_status_helper, 'on') }}"
+                  - "{{ (not sun_in_window) or outdoor_temp <= (shading_temp_threshold - shading_temp_hysteresis) }}"
+                  - "{{ not (night_mode_boolean is string and is_state(night_mode_boolean, 'on')) }}"
+                sequence:
+                  - action: input_boolean.turn_off
+                    target:
+                      entity_id: "{{ shading_status_helper }}"
+                  - action: cover.set_cover_position
+                    target:
+                      entity_id: !input cover
+                    data:
+                      position: !input shading_end_position
+
+      # --- MOSKITO-MODUS: LICHTER AUS ---
+      - conditions:
+          - condition: trigger
+            id: mosquito_lights
+          - condition: state
+            entity_id: sun.sun
+            state: below_horizon
+          - condition: time
+            after: !input mosquito_after_time
+        sequence:
+          - variables:
+              mosquito_area: >-
+                {{ mosquito_area_input if mosquito_area_input is string and mosquito_area_input
+                   else area_id(window_sensor) }}
+              lights_to_turn_off: >-
+                {% if mosquito_area %}
+                  {{ expand(area_entities(mosquito_area))
+                     | selectattr('domain', 'eq', 'light')
+                     | selectattr('state', 'eq', 'on')
+                     | map(attribute='entity_id')
+                     | reject('in', mosquito_exclude)
+                     | list }}
+                {% else %}
+                  {{ [] }}
+                {% endif %}
+          - condition: "{{ lights_to_turn_off | length > 0 }}"
+          - action: light.turn_off
+            target:
+              entity_id: "{{ lights_to_turn_off }}"
+
+      # --- BENACHRICHTIGUNG: FENSTER LANGE OFFEN/GEKIPPT ---
+      - conditions:
+          - condition: trigger
+            id:
+              - window_open_long
+              - window_tilted_long
+          - "{{ not (sleep_mode_boolean is string and is_state(sleep_mode_boolean, 'on')) }}"
+          - "{{ device_name_map | length > 0 }}"
+        sequence:
+          - variables:
+              state_word: "{{ 'offen' if trigger.id == 'window_open_long' else 'gekippt' }}"
+              timeout_used: "{{ notification_timeout if trigger.id == 'window_open_long' else notification_timeout_tilted }}"
+              has_area: "{{ use_area_name and area_name(window_sensor) is not none }}"
+              window_label: >-
+                {%- if has_area -%}
+                  {{ area_name(window_sensor) }}
+                {%- else -%}
+                  {{ state_attr(window_sensor, 'friendly_name') or window_sensor }}
+                {%- endif -%}
+              title_text: >-
+                {%- if has_area -%}
+                  Fenster {{ state_word }} in {{ window_label }}
+                {%- else -%}
+                  Fenster {{ state_word }}
+                {%- endif -%}
+              message_text: >-
+                {%- if has_area -%}
+                  Das Fenster im Bereich '{{ window_label }}' ist seit über {{ timeout_used }} Minuten {{ state_word }}.
+                {%- else -%}
+                  Fenster '{{ window_label }}' ist seit über {{ timeout_used }} Minuten {{ state_word }}.
+                {%- endif -%}
+          - repeat:
+              for_each: "{{ device_name_map }}"
+              sequence:
+                - action: "notify.{{ repeat.item }}"
+                  data:
+                    title: "{{ title_text }}"
+                    message: "{{ message_text }}"
+                    data:
+                      actions:
+                        - action: "{{ action_id }}"
+                          title: Rollladen schließen
+
+      # --- NOTIFICATION-ACTION: ROLLLADEN SCHLIESSEN ---
+      - conditions:
+          - condition: trigger
+            id: close_shutter_action
+          - "{{ trigger.event.data.action == action_id }}"
+        sequence:
+          - action: cover.close_cover
+            target:
+              entity_id: !input cover
+
+      # --- FENSTER-INTERAKTION (KIPPEN/ÖFFNEN + ZURÜCKFAHREN) ---
+      - conditions:
+          - condition: trigger
+            id: window_change
+        sequence:
+          - variables:
+              night_mode_on: "{{ night_mode_boolean is string and is_state(night_mode_boolean, 'on') }}"
+          # Ausgangsposition nur beim Übergang aus "nicht offen" sichern (geschlossen,
+          # unavailable, unknown) — sonst überschreibt Kippen→Öffnen den Snapshot
+          # mit der bereits veränderten Kipp-Position
+          - if:
+              - "{{ trigger.from_state is not none and trigger.from_state.state not in ['on', 'open', 'tilted'] }}"
+            then:
+              - action: scene.create
+                data:
+                  scene_id: "{{ 'reclose_' ~ (cover_entity | slugify) }}"
+                  snapshot_entities:
+                    - "{{ cover_entity }}"
+          - choose:
+              - conditions:
+                  - "{{ trigger.to_state.state == 'tilted' }}"
+                  - "{{ state_attr(cover_entity, 'current_position') | int(101) < tilted_position }}"
+                sequence:
+                  - action: cover.set_cover_position
+                    target:
+                      entity_id: !input cover
+                    data:
+                      position: !input tilted_position
+              - conditions:
+                  - "{{ trigger.to_state.state in ['on', 'open'] }}"
+                  - "{{ not night_mode_on }}"
+                sequence:
+                  - action: cover.open_cover
+                    target:
+                      entity_id: !input cover
+              # Nachts nur bis zur Lüftungsposition öffnen statt komplett
+              - conditions:
+                  - "{{ trigger.to_state.state in ['on', 'open'] }}"
+                  - "{{ night_mode_on }}"
+                  - "{{ state_attr(cover_entity, 'current_position') | int(101) < night_ventilation_position }}"
+                sequence:
+                  - action: cover.set_cover_position
+                    target:
+                      entity_id: !input cover
+                    data:
+                      position: !input night_ventilation_position
+          - wait_for_trigger:
+              - trigger: state
+                entity_id: !input window_sensor
+                to:
+                  - "off"
+                  - "closed"
+            timeout:
+              minutes: !input reclose_timeout
+            continue_on_timeout: true
+          # Zustand NACH dem Warten neu bewerten — währenddessen können Nachtmodus
+          # oder Sturm aktiv geworden sein, dann darf der Snapshot nicht zurückgeholt werden
+          - variables:
+              night_mode_on_now: "{{ night_mode_boolean is string and is_state(night_mode_boolean, 'on') }}"
+              wind_now: >-
+                {% if storm_wind_sensor is string %}
+                  {{ states(storm_wind_sensor) | float(0) }}
+                {% elif weather_entity is string %}
+                  {{ state_attr(weather_entity, 'wind_speed') | float(0) }}
+                {% else %}
+                  0
+                {% endif %}
+              storm_now: "{{ storm_enabled and (wind_now | float(0)) > wind_speed_threshold }}"
+              reclose_scene: "scene.reclose_{{ cover_entity | slugify }}"
+          - if:
+              - "{{ wait.trigger is none }}"
+            then:
+              - if:
+                  - "{{ force_close }}"
+                then:
+                  - action: cover.close_cover
+                    target:
+                      entity_id: !input cover
+            else:
+              - choose:
+                  # Fenster zu + Nachtmodus inzwischen aktiv → schließen statt restaurieren
+                  - conditions:
+                      - "{{ night_mode_on_now }}"
+                    sequence:
+                      - action: cover.close_cover
+                        target:
+                          entity_id: !input cover
+                  # Normalfall: Ausgangsposition wiederherstellen (nur wenn der
+                  # Snapshot existiert und kein Sturm aktiv ist)
+                  - conditions:
+                      - "{{ not storm_now }}"
+                      - "{{ states(reclose_scene) not in ['unknown', 'unavailable'] }}"
+                    sequence:
+                      - action: scene.turn_on
+                        target:
+                          entity_id: "{{ reclose_scene }}"
