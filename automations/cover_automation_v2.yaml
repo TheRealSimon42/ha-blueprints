@@ -119,7 +119,9 @@ blueprint:
         die Sonne höchstens bis zur eingestellten Tiefe in den Raum scheint — und wieder
         hoch, sobald die Sonne nicht mehr ins Fenster scheint oder es abgekühlt ist.
         Sehr schräg einfallende Sonne wird dabei automatisch berücksichtigt: je flacher
-        der Winkel, desto weiter oben bleibt der Rollladen.
+        der Winkel, desto weiter oben bleibt der Rollladen. Wird der Rollladen während
+        der Beschattung manuell verfahren, erkennt die Automation das und lässt ihn bis
+        zum Beschattungs-Ende in Ruhe.
         ⚠️ Benötigt einen eigenen input_boolean-Helfer pro Fenster als Status-Speicher.
 
 
@@ -309,6 +311,22 @@ blueprint:
             number:
               min: 1
               max: 25
+              step: 1
+              mode: slider
+              unit_of_measurement: "%"
+        shading_override_threshold:
+          name: Toleranz für manuelle Eingriffe
+          description: >
+            Weicht die Ist-Position während laufender Beschattung um mehr als diesen
+            Wert von der berechneten Sollposition ab, wertet die Automation das als
+            manuellen Eingriff und lässt den Rollladen in Ruhe — bis die Beschattung
+            endet und normal wieder geöffnet wird. Kleinere Abweichungen gelten als
+            normales Nachführen der Sonne.
+          default: 20
+          selector:
+            number:
+              min: 10
+              max: 60
               step: 1
               mode: slider
               unit_of_measurement: "%"
@@ -534,6 +552,7 @@ variables:
   shading_temp_threshold: !input shading_temp_threshold
   shading_temp_hysteresis: !input shading_temp_hysteresis
   shading_min_change: !input shading_min_change
+  shading_override_threshold: !input shading_override_threshold
   force_shading: !input force_shading
   mosquito_area_input: !input mosquito_area
   mosquito_exclude: !input mosquito_exclude
@@ -753,17 +772,37 @@ actions:
                           {{ p }}
                         {% endif %}
                       current_position: "{{ state_attr(cover_entity, 'current_position') | int(-1) }}"
-                  - condition: "{{ current_position >= 0 and (current_position - target_position | int) | abs >= shading_min_change }}"
-                  - action: cover.set_cover_position
-                    target:
-                      entity_id: !input cover
-                    data:
-                      position: "{{ target_position }}"
-                  # Erst nach erfolgreichem Verfahren als "aktiv" markieren — so fasst
-                  # das Beschattungs-Ende nur Rollläden an, die wir selbst bewegt haben
-                  - action: input_boolean.turn_on
-                    target:
-                      entity_id: "{{ shading_status_helper }}"
+                  - condition: "{{ current_position >= 0 }}"
+                  - variables:
+                      deviation: "{{ (current_position - target_position | int) | abs }}"
+                  - if:
+                      - "{{ is_state(shading_status_helper, 'on') }}"
+                    then:
+                      # Beschattung läuft bereits: nur kleine Abweichungen nachführen.
+                      # Große Abweichungen können nicht vom Sonnenstand kommen (der
+                      # wandert pro Tick nur wenige Prozent) — das war ein manueller
+                      # Eingriff und wird bis zum Beschattungs-Ende respektiert.
+                      - if:
+                          - "{{ deviation >= shading_min_change and deviation <= shading_override_threshold }}"
+                        then:
+                          - action: cover.set_cover_position
+                            target:
+                              entity_id: !input cover
+                            data:
+                              position: "{{ target_position }}"
+                    else:
+                      # Beschattung beginnt: Anfangsbewegung immer ausführen
+                      - action: input_boolean.turn_on
+                        target:
+                          entity_id: "{{ shading_status_helper }}"
+                      - if:
+                          - "{{ deviation >= shading_min_change }}"
+                        then:
+                          - action: cover.set_cover_position
+                            target:
+                              entity_id: !input cover
+                            data:
+                              position: "{{ target_position }}"
               # Beschattung beenden
               - conditions:
                   - "{{ is_state(shading_status_helper, 'on') }}"
