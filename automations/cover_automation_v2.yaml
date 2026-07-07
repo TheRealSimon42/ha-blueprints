@@ -3,7 +3,9 @@ blueprint:
   description: >
     Steuert einen einzelnen Rollladen anhand "seines" Fensters: morgendliches Öffnen,
     Reaktion auf gekippte/geöffnete Fenster inkl. Rückfahr-Logik, Nachtmodus, Sturmschutz,
-    automatische Beschattung anhand des Sonnenstands (Sonnenschutz) sowie ein Moskito-Modus,
+    automatische Beschattung anhand des Sonnenstands (Sonnenschutz, optional mit Filter
+    nach Wetterlage), Sonnenheizen (das Gegenteil: öffnet in der Heizperiode
+    heruntergelassene/vergessene Rollläden bei Sonne und Kälte) sowie ein Moskito-Modus,
     der beim Öffnen des Fensters nach Sonnenuntergang die Lichter im Raum ausschaltet.
 
 
@@ -112,43 +114,21 @@ blueprint:
           default: false
           selector:
             boolean: {}
-    shading_section:
-      name: Sonnenschutz (Beschattung)
+    window_geometry_section:
+      name: Fenstergeometrie & Sonnenausrichtung
       description: >
-        Fährt den Rollladen anhand des Sonnenstands automatisch so weit herunter, dass
-        die Sonne höchstens bis zur eingestellten Tiefe in den Raum scheint — und wieder
-        hoch, sobald die Sonne nicht mehr ins Fenster scheint oder es abgekühlt ist.
-        Sehr schräg einfallende Sonne wird dabei automatisch berücksichtigt: je flacher
-        der Winkel, desto weiter oben bleibt der Rollladen. Wird der Rollladen während
-        der Beschattung manuell verfahren, erkennt die Automation das und lässt ihn bis
-        zum Beschattungs-Ende in Ruhe.
-        ⚠️ Benötigt einen eigenen input_boolean-Helfer pro Fenster als Status-Speicher.
+        Ausrichtung und Sichtfeld des Fensters. Diese Werte bestimmen, wann die Sonne
+        geometrisch "ins Fenster scheint" — sowohl für den Sonnenschutz (Beschattung)
+        als auch für Sonnenheizen. Wird nur eines der beiden Features genutzt, müssen
+        die Werte trotzdem hier gesetzt werden.
 
 
         Zur Bedeutung von Ausrichtung und Sichtfeld:
 
         ![Erklärgrafik Sichtfeld](https://cdn.jsdelivr.net/gh/TheRealSimon42/ha-blueprints@main/images/sichtfeld_beschattung.svg)
-      icon: mdi:sun-wireless
+      icon: mdi:sun-compass
       collapsed: true
       input:
-        shading_enabled:
-          name: Sonnenschutz aktivieren
-          description: >
-            Benötigt zwingend den Status-Helfer (nächstes Feld) — ohne ihn bleibt der
-            Sonnenschutz wirkungslos.
-          default: false
-          selector:
-            boolean: {}
-        shading_status_helper:
-          name: Status-Helfer (input_boolean)
-          description: >
-            Erforderlich für den Sonnenschutz: ein input_boolean-Helfer NUR für dieses
-            Fenster. Er merkt sich, ob die Beschattung aktiv ist, damit der Rollladen
-            danach zuverlässig wieder geöffnet wird (auch über Neustarts hinweg).
-          default: []
-          selector:
-            entity:
-              domain: input_boolean
         window_azimuth:
           name: Ausrichtung des Fensters
           description: >
@@ -196,8 +176,9 @@ blueprint:
         shading_min_elevation:
           name: Minimale Sonnenhöhe
           description: >
-            Unterhalb dieser Sonnenhöhe (Elevation in Grad) wird nicht beschattet,
-            z.B. weil Nachbargebäude oder Bäume die tiefe Sonne ohnehin blockieren.
+            Unterhalb dieser Sonnenhöhe (Elevation in Grad) gilt die Sonne als nicht
+            "im Fenster" (weder für Sonnenschutz noch für Sonnenheizen), z.B. weil
+            Nachbargebäude oder Bäume die tiefe Sonne ohnehin blockieren.
           default: 0
           selector:
             number:
@@ -206,6 +187,86 @@ blueprint:
               step: 1
               mode: slider
               unit_of_measurement: °
+    shading_section:
+      name: Sonnenschutz (Beschattung)
+      description: >
+        Fährt den Rollladen anhand des Sonnenstands automatisch so weit herunter, dass
+        die Sonne höchstens bis zur eingestellten Tiefe in den Raum scheint — und wieder
+        hoch, sobald die Sonne nicht mehr ins Fenster scheint oder es abgekühlt ist.
+        Sehr schräg einfallende Sonne wird dabei automatisch berücksichtigt: je flacher
+        der Winkel, desto weiter oben bleibt der Rollladen. Wird der Rollladen während
+        der Beschattung manuell verfahren, erkennt die Automation das und lässt ihn bis
+        zum Beschattungs-Ende in Ruhe. Ausrichtung und Sichtfeld werden im Abschnitt
+        "Fenstergeometrie & Sonnenausrichtung" eingestellt.
+        ⚠️ Benötigt einen eigenen input_boolean-Helfer pro Fenster als Status-Speicher.
+      icon: mdi:sun-wireless
+      collapsed: true
+      input:
+        shading_enabled:
+          name: Sonnenschutz aktivieren
+          description: >
+            Benötigt zwingend den Status-Helfer (nächstes Feld) sowie die Werte im
+            Abschnitt "Fenstergeometrie & Sonnenausrichtung" — ohne sie bleibt der
+            Sonnenschutz wirkungslos.
+          default: false
+          selector:
+            boolean: {}
+        shading_status_helper:
+          name: Status-Helfer (input_boolean)
+          description: >
+            Erforderlich für den Sonnenschutz: ein input_boolean-Helfer NUR für dieses
+            Fenster. Er merkt sich, ob die Beschattung aktiv ist, damit der Rollladen
+            danach zuverlässig wieder geöffnet wird (auch über Neustarts hinweg).
+          default: []
+          selector:
+            entity:
+              domain: input_boolean
+        shading_weather_states:
+          name: Wetterlagen für Beschattung (optional)
+          description: >
+            Beschattet wird nur, wenn die Wetter-Entität (siehe Sturmschutz weiter
+            unten) eine dieser Wetterlagen meldet — praktisch, um z.B. bei "bewölkt"
+            trotz rechnerisch passendem Sonnenstand nicht unnötig zu beschatten.
+            Leer lassen, um die Wetterlage zu ignorieren (Standardverhalten wie
+            bisher — nur Sonnenstand und Temperatur zählen). Ohne gesetzte
+            Wetter-Entität wird dieser Filter ignoriert, auch wenn hier Werte
+            ausgewählt sind.
+          default: []
+          selector:
+            select:
+              multiple: true
+              mode: list
+              options:
+                - value: sunny
+                  label: "☀️ Sonnig"
+                - value: partlycloudy
+                  label: "⛅ Teilweise bewölkt"
+                - value: cloudy
+                  label: "☁️ Bewölkt"
+                - value: clear-night
+                  label: "🌙 Klare Nacht"
+                - value: fog
+                  label: "🌫️ Nebel"
+                - value: windy
+                  label: "💨 Windig"
+                - value: windy-variant
+                  label: "💨 Windig mit Wolken"
+                - value: rainy
+                  label: "🌧️ Regnerisch"
+                - value: pouring
+                  label: "🌧️ Starkregen"
+                - value: lightning
+                  label: "⛈️ Gewitter"
+                - value: lightning-rainy
+                  label: "⛈️ Gewitter mit Regen"
+                - value: hail
+                  label: "🌨️ Hagel"
+                - value: snowy
+                  label: "❄️ Schnee"
+                - value: snowy-rainy
+                  label: "🌨️ Schneeregen"
+                - value: exceptional
+                  label: "⚠️ Außergewöhnlich"
         window_height:
           name: Fensterhöhe
           description: Höhe der Glasfläche in Metern.
@@ -340,6 +401,99 @@ blueprint:
           default: false
           selector:
             boolean: {}
+    solar_heating_section:
+      name: Sonnenheizen (Winter)
+      description: >
+        Das Gegenteil des Sonnenschutzes: Öffnet einen heruntergelassenen (z.B.
+        vergessenen) Rollladen automatisch, wenn die Sonne laut Sonnenstand ins
+        Fenster scheint und es draußen kalt ist — damit die Sonne kostenlos beim
+        Aufheizen des Raums hilft. Nutzt dieselbe Fensterausrichtung/Sichtfeld wie
+        der Sonnenschutz (Abschnitt "Fenstergeometrie & Sonnenausrichtung"), läuft
+        aber unabhängig davon, ob der Sonnenschutz selbst aktiviert ist.
+        Der Sturmschutz hat immer Vorrang — bei Starkwind greift Sonnenheizen nicht.
+        ⚠️ Benötigt einen EIGENEN input_boolean-Helfer (nicht denselben wie der
+        Sonnenschutz-Helfer!).
+      icon: mdi:sun-thermometer
+      collapsed: true
+      input:
+        solar_heating_enabled:
+          name: Sonnenheizen aktivieren
+          description: >
+            Benötigt zwingend den Status-Helfer (nächstes Feld) sowie die Werte im
+            Abschnitt "Fenstergeometrie & Sonnenausrichtung" — ohne sie bleibt
+            Sonnenheizen wirkungslos.
+          default: false
+          selector:
+            boolean: {}
+        solar_heating_status_helper:
+          name: Status-Helfer (input_boolean)
+          description: >
+            Erforderlich für Sonnenheizen: ein eigener input_boolean-Helfer NUR für
+            dieses Fenster (separat vom Sonnenschutz-Helfer). Verhindert, dass ein
+            manuell wieder heruntergelassener Rollladen im selben Zeitraum erneut
+            aufgedrängt wird — erst wenn die Bedingungen (Sonne/Temperatur) einmal
+            enden und neu eintreten, öffnet Sonnenheizen wieder.
+          default: []
+          selector:
+            entity:
+              domain: input_boolean
+        solar_heating_temp_threshold:
+          name: Temperatur-Schwelle
+          description: >
+            Sonnenheizen greift nur, wenn die Außentemperatur unter diesem Wert
+            liegt (Heizperiode). Nutzt denselben Temperatursensor bzw. dieselbe
+            Wetter-Entität wie der Sonnenschutz (Außentemperatur-Sensor bzw.
+            Wetter-Entität aus dem Sturmschutz-Abschnitt).
+            ⚠️ Sollte deutlich unter der Beschattungs-Temperatur-Schwelle liegen,
+            damit sich Sonnenschutz und Sonnenheizen bei überlappenden Werten nicht
+            widersprechen (gleichzeitig schließen und öffnen wollen).
+          default: 12
+          selector:
+            number:
+              min: -10
+              max: 20
+              step: 0.5
+              mode: slider
+              unit_of_measurement: °C
+        solar_heating_temp_hysteresis:
+          name: Temperatur-Hysterese
+          description: >
+            Sonnenheizen endet erst, wenn die Temperatur um diesen Wert über die
+            Schwelle gestiegen ist (verhindert ständiges Auf und Ab).
+          default: 2
+          selector:
+            number:
+              min: 0
+              max: 5
+              step: 0.5
+              mode: slider
+              unit_of_measurement: °C
+        solar_heating_min_position:
+          name: Grenzwert "heruntergelassen"
+          description: >
+            Der Rollladen gilt erst unterhalb dieser Position als "heruntergelassen"
+            und wird nur dann durch Sonnenheizen geöffnet (verhindert unnötiges
+            Nachfahren bei einem bereits fast offenen Rollladen).
+          default: 50
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 1
+              mode: slider
+              unit_of_measurement: "%"
+        solar_heating_position:
+          name: Zielposition
+          description: >
+            Position (in %), auf die der Rollladen beim Sonnenheizen geöffnet wird.
+          default: 100
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 1
+              mode: slider
+              unit_of_measurement: "%"
     mosquito_section:
       name: Moskito-Modus
       description: >
@@ -554,6 +708,12 @@ variables:
   shading_min_change: !input shading_min_change
   shading_override_threshold: !input shading_override_threshold
   force_shading: !input force_shading
+  shading_weather_states: !input shading_weather_states
+  solar_heating_status_helper: !input solar_heating_status_helper
+  solar_heating_temp_threshold: !input solar_heating_temp_threshold
+  solar_heating_temp_hysteresis: !input solar_heating_temp_hysteresis
+  solar_heating_min_position: !input solar_heating_min_position
+  solar_heating_position: !input solar_heating_position
   mosquito_area_input: !input mosquito_area
   mosquito_exclude: !input mosquito_exclude
   sleep_mode_boolean: !input sleep_mode_boolean
@@ -629,6 +789,10 @@ triggers:
     minutes: "/5"
     id: shading_tick
     enabled: !input shading_enabled
+  - trigger: time_pattern
+    minutes: "/5"
+    id: solar_heating_tick
+    enabled: !input solar_heating_enabled
   - trigger: state
     entity_id: !input window_sensor
     to:
@@ -678,6 +842,14 @@ actions:
               - action: input_boolean.turn_off
                 target:
                   entity_id: "{{ shading_status_helper }}"
+          # Sonnenheizen-Status ebenfalls zurücksetzen, damit die nächste Aktivierung
+          # (nächster sonniger kalter Morgen) nicht durch einen Alt-Zustand blockiert wird
+          - if:
+              - "{{ solar_heating_status_helper is string and is_state(solar_heating_status_helper, 'on') }}"
+            then:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: "{{ solar_heating_status_helper }}"
           - choose:
               - conditions:
                   - "{{ states(window_sensor) == 'tilted' }}"
@@ -748,11 +920,20 @@ actions:
                   0
                 {% endif %}
               storm_ok: "{{ not storm_enabled or (wind_now | float(0)) < wind_speed_threshold }}"
+              # Wetterlagen-Filter: ohne Auswahl (leer) immer erlaubt (Altverhalten,
+              # rein auf Sonnenstand/Temperatur basierend); ohne gesetzte
+              # Wetter-Entität ebenfalls immer erlaubt (Filter kann nicht ausgewertet
+              # werden und soll die Beschattung dann nicht lahmlegen)
+              weather_ok: >-
+                {{ shading_weather_states | length == 0
+                   or not (weather_entity is string)
+                   or states(weather_entity) in shading_weather_states }}
           - choose:
               # Beschattung starten / der Sonne nachführen
               - conditions:
                   - "{{ sun_in_window and outdoor_temp >= shading_temp_threshold }}"
                   - "{{ storm_ok }}"
+                  - "{{ weather_ok }}"
                   - "{{ not (night_mode_boolean is string and is_state(night_mode_boolean, 'on')) }}"
                   - "{{ force_shading or states(window_sensor) not in ['on', 'open'] }}"
                 sequence:
@@ -806,7 +987,10 @@ actions:
               # Beschattung beenden
               - conditions:
                   - "{{ is_state(shading_status_helper, 'on') }}"
-                  - "{{ (not sun_in_window) or outdoor_temp <= (shading_temp_threshold - shading_temp_hysteresis) }}"
+                  - >-
+                    {{ (not sun_in_window)
+                       or outdoor_temp <= (shading_temp_threshold - shading_temp_hysteresis)
+                       or not weather_ok }}
                   - "{{ not (night_mode_boolean is string and is_state(night_mode_boolean, 'on')) }}"
                 sequence:
                   - action: input_boolean.turn_off
@@ -817,6 +1001,77 @@ actions:
                       entity_id: !input cover
                     data:
                       position: !input shading_end_position
+
+      # --- SONNENHEIZEN (Winter) ---
+      - conditions:
+          - condition: trigger
+            id: solar_heating_tick
+          - "{{ solar_heating_status_helper is string }}"
+        sequence:
+          - variables:
+              sun_elevation: "{{ state_attr('sun.sun', 'elevation') | float(0) }}"
+              sun_azimuth: "{{ state_attr('sun.sun', 'azimuth') | float(0) }}"
+              az_diff: "{{ ((sun_azimuth - window_azimuth + 180) % 360) - 180 }}"
+              sun_in_window: >-
+                {{ sun_elevation >= shading_min_elevation
+                   and az_diff >= (0 - shading_fov_left)
+                   and az_diff <= shading_fov_right }}
+              # Fallback +99 (statt -99 wie beim Sonnenschutz): fehlt die
+              # Temperaturquelle, soll die "<= Schwelle"-Prüfung sicher scheitern,
+              # damit Sonnenheizen ohne Datenquelle einfach aus bleibt statt zu spinnen
+              outdoor_temp: >-
+                {% if shading_temp_sensor is string %}
+                  {{ states(shading_temp_sensor) | float(99) }}
+                {% elif weather_entity is string %}
+                  {{ state_attr(weather_entity, 'temperature') | float(99) }}
+                {% else %}
+                  99
+                {% endif %}
+              night_mode_on: "{{ night_mode_boolean is string and is_state(night_mode_boolean, 'on') }}"
+              wind_now: >-
+                {% if storm_wind_sensor is string %}
+                  {{ states(storm_wind_sensor) | float(0) }}
+                {% elif weather_entity is string %}
+                  {{ state_attr(weather_entity, 'wind_speed') | float(0) }}
+                {% else %}
+                  0
+                {% endif %}
+              storm_ok: "{{ not storm_enabled or (wind_now | float(0)) < wind_speed_threshold }}"
+          - choose:
+              # Sonnenheizen starten: heruntergelassenen Rollladen öffnen.
+              # Der Sturmschutz hat immer Vorrang: bei Starkwind wird nicht geöffnet
+              # (im Panzer-Modus wäre das direkt kontraproduktiv)
+              - conditions:
+                  - "{{ not is_state(solar_heating_status_helper, 'on') }}"
+                  - "{{ sun_in_window and outdoor_temp <= solar_heating_temp_threshold }}"
+                  - "{{ not night_mode_on }}"
+                  - "{{ storm_ok }}"
+                  - >-
+                    {{ state_attr(cover_entity, 'current_position') is not none
+                       and state_attr(cover_entity, 'current_position') | int(101) < solar_heating_min_position }}
+                sequence:
+                  # Helfer zuerst setzen: verhindert, dass ein manuelles Wieder-Runterfahren
+                  # im selben Zeitraum sofort erneut aufgedrängt wird (kein Ping-Pong)
+                  - action: input_boolean.turn_on
+                    target:
+                      entity_id: "{{ solar_heating_status_helper }}"
+                  - action: cover.set_cover_position
+                    target:
+                      entity_id: !input cover
+                    data:
+                      position: !input solar_heating_position
+              # Sonnenheizen beenden: nur Status zurücksetzen, kein erzwungenes Schließen —
+              # der Rollladen bleibt offen, bis Nachtmodus/Fenster-Interaktion ihn regulär bewegen
+              - conditions:
+                  - "{{ is_state(solar_heating_status_helper, 'on') }}"
+                  - >-
+                    {{ (not sun_in_window)
+                       or outdoor_temp >= (solar_heating_temp_threshold + solar_heating_temp_hysteresis)
+                       or night_mode_on }}
+                sequence:
+                  - action: input_boolean.turn_off
+                    target:
+                      entity_id: "{{ solar_heating_status_helper }}"
 
       # --- MOSKITO-MODUS: LICHTER AUS ---
       - conditions:
