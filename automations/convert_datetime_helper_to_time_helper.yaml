@@ -5,7 +5,7 @@ blueprint:
     Sie extrahiert dann nur die Uhrzeit und speichert sie in einem zweiten 'input_datetime'-Helfer, der nur die Uhrzeit speichert.
   domain: automation
   source_url: https://raw.githubusercontent.com/TheRealSimon42/home_assistant_templates/main/blueprint_automations/convert_datetime_helper_to_time_helper.yaml
-  
+
   input:
     source_datetime_helper:
       name: Quell-Helfer (Datum & Uhrzeit)

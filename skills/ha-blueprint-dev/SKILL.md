@@ -20,13 +20,13 @@ live gegen die echte HA-Instanz testen.
 
 ## Umgebung
 
-| Was | Wo |
-|-----|-----|
-| GitHub-Repo | `TheRealSimon42/ha-blueprints` (gh CLI ist authentifiziert, Push auf `main` ist Simons üblicher Workflow — trotzdem vor dem ersten Push der Session einmal fragen bzw. auf explizite Freigabe achten) |
-| Haupt-Blueprint | `automations/cover_automation_v2.yaml` (V1 daneben ist deprecated, nicht anfassen ohne Auftrag) |
-| HA-Config-Share | `/Volumes/config/` (SMB-Mount der HA-Instanz; Blueprints unter `blueprints/automation/TheRealSimon42/`) — falls nicht gemountet, Simon bitten |
-| HA-Zugriff | HA-MCP-Tools (`ha_eval_template`, `ha_get_blueprint`, `ha_call_service`, `ha_config_set_automation`, `ha_get_entity`, …) — ggf. per ToolSearch laden |
-| Bilder in Beschreibungen | `images/` im Repo, eingebunden über `https://cdn.jsdelivr.net/gh/TheRealSimon42/ha-blueprints@main/...` |
+| Was                      | Wo                                                                                                                                                                                                    |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GitHub-Repo              | `TheRealSimon42/ha-blueprints` (gh CLI ist authentifiziert, Push auf `main` ist Simons üblicher Workflow — trotzdem vor dem ersten Push der Session einmal fragen bzw. auf explizite Freigabe achten) |
+| Haupt-Blueprint          | `automations/cover_automation_v2.yaml` (V1 daneben ist deprecated, nicht anfassen ohne Auftrag)                                                                                                       |
+| HA-Config-Share          | `/Volumes/config/` (SMB-Mount der HA-Instanz; Blueprints unter `blueprints/automation/TheRealSimon42/`) — falls nicht gemountet, Simon bitten                                                         |
+| HA-Zugriff               | HA-MCP-Tools (`ha_eval_template`, `ha_get_blueprint`, `ha_call_service`, `ha_config_set_automation`, `ha_get_entity`, …) — ggf. per ToolSearch laden                                                  |
+| Bilder in Beschreibungen | `images/` im Repo, eingebunden über `https://cdn.jsdelivr.net/gh/TheRealSimon42/ha-blueprints@main/...`                                                                                               |
 
 ## Arbeitsweise — das Wichtigste zuerst
 
@@ -40,6 +40,7 @@ live gegen die echte HA-Instanz testen.
    ergänzt es um Repo-Workflow und projektspezifische Learnings.
 
 3. **Verifizieren statt vermuten.** Bei Unsicherheit über HA-Verhalten nicht raten:
+
    - Jinja-Templates mit konkreten Testwerten über `ha_eval_template` gegen die echte
      Instanz laufen lassen (Namespace-Loop mit mehreren Testfällen, siehe Referenz).
    - Schema-Fragen ("akzeptiert ein state-Trigger `entity_id: []`?") mit einer
@@ -114,7 +115,7 @@ angefasst wird.
 
 1. Blueprint vollständig lesen; bei Architektur-/Pattern-Fragen `references/patterns.md`.
 2. Änderung umsetzen. Beschreibungen der Inputs sind Teil des Produkts: Sie erklären
-   dem Endnutzer das *Warum* (inkl. ⚠️-Warnungen bei Aussperr-Gefahr o.ä.) und
+   dem Endnutzer das _Warum_ (inkl. ⚠️-Warnungen bei Aussperr-Gefahr o.ä.) und
    dürfen Markdown inkl. Bildern enthalten.
 3. **Lokal validieren:** `python3 scripts/validate_blueprint.py <datei>` (im Skill-Ordner).
    Das Script prüft YAML, !input-Referenzen, Pflichtfelder, Legacy-Syntax und die
@@ -133,6 +134,10 @@ angefasst wird.
    auf `main` pushen. Bei geänderten Bildern anschließend
    `curl https://purge.jsdelivr.net/gh/TheRealSimon42/ha-blueprints@main/<pfad>`
    und die ausgelieferte Version verifizieren — jsdelivr cached auch 404s.
+   **Nach dem Push die CI prüfen** (`gh run watch` bzw. `gh run list`): Das Repo
+   lintet jeden Push mit yamllint, `prettier --check` und `validate_blueprint.py`
+   — ein roter Check gehört zur Aufgabe und wird sofort gefixt. Alle drei Checks
+   lassen sich vor dem Push lokal mit denselben Kommandos reproduzieren.
 8. Dem Nutzer berichten, was sich verhaltensmäßig ändert (nicht nur was am Code) —
    inklusive bekannter Nebeneffekte und bewusst NICHT gefixter Punkte.
 

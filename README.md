@@ -5,6 +5,7 @@ A collection of Home Assistant automation blueprints.
 ## Automations
 
 ### Intelligente Rollladensteuerung V2 (ein Rollladen pro Automation)
+
 **File:** `automations/cover_automation_v2.yaml`
 
 Die aktuelle, empfohlene Version. Pro Fenster/Rollladen wird eine eigene Automation
@@ -25,6 +26,7 @@ Mindestversion: Home Assistant 2024.10.
 [![Import Blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/TheRealSimon42/ha-blueprints/blob/main/automations/cover_automation_v2.yaml)
 
 ### Intelligente Rollladensteuerung (V1, legacy)
+
 **File:** `automations/cover_automation.yaml`
 
 Vorgänger-Version mit Mehrfachauswahl über zwei parallele Listen. Bleibt für bestehende
@@ -33,6 +35,7 @@ Nutzer erhalten; für neue Installationen die V2 verwenden.
 [![Import Blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/TheRealSimon42/ha-blueprints/blob/main/automations/cover_automation.yaml)
 
 ### Synchronisiere Datum+Uhrzeit zu Uhrzeit-Helfer
+
 **File:** `automations/convert_datetime_helper_to_time_helper.yaml`
 
 Synchronisiert die Uhrzeit eines `input_datetime`-Helfers (mit Datum+Uhrzeit) in einen reinen Uhrzeit-Helfer. Nützlich, wenn man nur die Zeitkomponente braucht.
@@ -42,6 +45,7 @@ Synchronisiert die Uhrzeit eines `input_datetime`-Helfers (mit Datum+Uhrzeit) in
 ## Entwicklung
 
 ### Agent-Skill für die Blueprint-Entwicklung
+
 **Folder:** `skills/ha-blueprint-dev/`
 
 Ein Agent Skill für Claude (Code), der die Arbeitsweise, Patterns und Learnings aus der

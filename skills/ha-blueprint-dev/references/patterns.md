@@ -3,6 +3,7 @@
 Konkrete, erprobte Baupläne. Alle Beispiele nutzen moderne Syntax (2024.10+).
 
 ## Inhalt
+
 1. [Ein-Gerät-pro-Instanz-Architektur](#1-ein-gerät-pro-instanz-architektur)
 2. [Optionale Inputs & Feature-Toggles](#2-optionale-inputs--feature-toggles)
 3. [Status-Helfer für persistenten Zustand](#3-status-helfer-für-persistenten-zustand)
@@ -44,14 +45,14 @@ triggers:
 
 # Optionaler Entity-Input, der in einem Trigger steckt:
 morning_time:
-  default: []          # leere Liste: Trigger ist valide, feuert nie (live verifiziert)
+  default: [] # leere Liste: Trigger ist valide, feuert nie (live verifiziert)
   selector:
     entity:
       domain: input_datetime
 
 # Optionaler Area-Input:
 mosquito_area:
-  default: ""          # NICHT {} — das rendert als "Unbekannter Bereich" in der UI
+  default: "" # NICHT {} — das rendert als "Unbekannter Bereich" in der UI
   selector:
     area: {}
 ```
@@ -85,6 +86,7 @@ Blueprints haben keinen eigenen Speicher. Für Zustand, der Läufe und HA-Neusta
 verlangen (optional mit `default: []`, Feature prüft `is string`).
 
 Regeln aus der Praxis:
+
 - Helfer erst **nach** der zugehörigen Aktion setzen bzw. beim Feature-Start —
   und beim Beenden **zuerst** zurücksetzen, dann fahren.
 - Jeder Branch, der das Feature logisch beendet (z.B. Nachtmodus schließt den
