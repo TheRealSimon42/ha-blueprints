@@ -116,7 +116,11 @@ angefasst wird.
 1. Blueprint vollständig lesen; bei Architektur-/Pattern-Fragen `references/patterns.md`.
 2. Änderung umsetzen. Beschreibungen der Inputs sind Teil des Produkts: Sie erklären
    dem Endnutzer das _Warum_ (inkl. ⚠️-Warnungen bei Aussperr-Gefahr o.ä.) und
-   dürfen Markdown inkl. Bildern enthalten.
+   dürfen Markdown inkl. Bildern enthalten. **Doku mitführen:** Jedes Blueprint hat
+   eine Seite unter `docs/<blueprint>.md` (verlinkt aus README und aus der
+   Blueprint-Beschreibung). Verhaltensänderungen, neue Features und neue bekannte
+   Grenzen werden im SELBEN Commit dort nachgezogen — driftende Doku ist ein Bug.
+   Neue Blueprints bekommen Doku-Seite + README-Eintrag von Anfang an.
 3. **Lokal validieren:** `python3 scripts/validate_blueprint.py <datei>` (im Skill-Ordner).
    Das Script prüft YAML, !input-Referenzen, Pflichtfelder, Legacy-Syntax und die
    bekannten Template-Fallen. Fehler beheben, bevor irgendetwas deployt wird.

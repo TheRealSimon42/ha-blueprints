@@ -12,6 +12,9 @@ blueprint:
     Pro Fenster/Rollladen wird eine eigene Automation aus diesem Blueprint erstellt.
     Gemeinsame Helfer (z.B. das input_datetime für morgens oder der Nachtmodus-Helfer)
     werden einfach in allen Instanzen identisch ausgewählt.
+
+
+    📖 [Ausführliche Dokumentation & FAQ](https://github.com/TheRealSimon42/ha-blueprints/blob/main/docs/cover_automation_v2.md)
   domain: automation
   author: TheRealSimon42
   homeassistant:

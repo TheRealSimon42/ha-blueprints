@@ -23,6 +23,10 @@ Pro Fenster/Rollladen wird eine eigene Automation erstellt — gemeinsame Helfer
 
 Mindestversion: Home Assistant 2024.10.
 
+📖 **[Ausführliche Dokumentation](docs/cover_automation_v2.md)** — Einrichtung,
+Funktionsweise (Sichtfeld-Geometrie, manuelle Eingriffe, Prioritäten), bekannte
+Grenzen und FAQ.
+
 [![Import Blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/TheRealSimon42/ha-blueprints/blob/main/automations/cover_automation_v2.yaml)
 
 > Hinweis: Die frühere Version (`cover_automation.yaml`, Zuordnung mehrerer Rollläden
