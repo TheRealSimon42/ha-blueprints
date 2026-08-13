@@ -92,8 +92,14 @@ Regeln aus der Praxis:
 - Jeder Branch, der das Feature logisch beendet (z.B. Nachtmodus schließt den
   Rollladen), muss den Helfer mit zurücksetzen — sonst feuert das "Feature-Ende"
   zur Unzeit (morgens beim ersten Tick).
-- Ohne gesetzten Helfer schlägt das Feature still fehl → in der Beschreibung des
-  Enable-Schalters UND des Helfer-Inputs deutlich machen ("zwingend erforderlich").
+- Blueprints kennen keine bedingten Pflichtfelder ("wenn Feature an, dann Helfer
+  Pflicht" ist im Schema nicht ausdrückbar). Deshalb: Feature an + Helfer leer NICHT
+  still scheitern lassen, sondern im Feature-Branch per
+  `persistent_notification.create` (feste `notification_id` pro Instanz, Cover-Name
+  in der Meldung) laut machen und den Lauf mit `stop:` beenden. Die Meldung erneuert
+  sich bei jedem Tick, bis der Helfer gesetzt oder das Feature deaktiviert ist —
+  gewollter Druck, es ist eine echte Fehlkonfiguration. Zusätzlich in den
+  Beschreibungen von Enable-Schalter UND Helfer-Input erwähnen.
 
 ## 4. Manual-Override-Erkennung ohne Zusatz-Helfer
 
