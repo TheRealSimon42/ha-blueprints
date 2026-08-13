@@ -32,11 +32,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: npx --yes prettier@3.5 --check .
 
-      # Semantische Blueprint-Pruefung (siehe skills/ha-blueprint-dev).
-      # cover_automation.yaml (V1) ist legacy mit bekannten Findings und bleibt
-      # ausgenommen, bis die V1-Bugfixes gelandet sind.
+      # Semantische Blueprint-Pruefung (siehe skills/ha-blueprint-dev)
       - name: Blueprint linter
         if: ${{ !cancelled() }}
         run: |
-          python3 skills/ha-blueprint-dev/scripts/validate_blueprint.py automations/cover_automation_v2.yaml
-          python3 skills/ha-blueprint-dev/scripts/validate_blueprint.py automations/convert_datetime_helper_to_time_helper.yaml
+          for f in automations/*.yaml; do
+            python3 skills/ha-blueprint-dev/scripts/validate_blueprint.py "$f"
+          done

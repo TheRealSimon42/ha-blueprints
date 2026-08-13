@@ -4,12 +4,12 @@ A collection of Home Assistant automation blueprints.
 
 ## Automations
 
-### Intelligente Rollladensteuerung V2 (ein Rollladen pro Automation)
+### Intelligente Rollladensteuerung
 
 **File:** `automations/cover_automation_v2.yaml`
 
-Die aktuelle, empfohlene Version. Pro Fenster/Rollladen wird eine eigene Automation
-erstellt — gemeinsame Helfer (Uhrzeit, Nachtmodus) wählen alle Instanzen identisch aus.
+Pro Fenster/Rollladen wird eine eigene Automation erstellt — gemeinsame Helfer
+(Uhrzeit, Nachtmodus) wählen alle Instanzen identisch aus.
 
 - Morgens öffnen (input_datetime-Helfer, abschaltbar)
 - Fenster-Interaktion (offen/gekippt → Position, mit Rückfahr-Logik)
@@ -25,14 +25,9 @@ Mindestversion: Home Assistant 2024.10.
 
 [![Import Blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/TheRealSimon42/ha-blueprints/blob/main/automations/cover_automation_v2.yaml)
 
-### Intelligente Rollladensteuerung (V1, legacy)
-
-**File:** `automations/cover_automation.yaml`
-
-Vorgänger-Version mit Mehrfachauswahl über zwei parallele Listen. Bleibt für bestehende
-Nutzer erhalten; für neue Installationen die V2 verwenden.
-
-[![Import Blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/TheRealSimon42/ha-blueprints/blob/main/automations/cover_automation.yaml)
+> Hinweis: Die frühere Version (`cover_automation.yaml`, Zuordnung mehrerer Rollläden
+> über zwei parallele Listen) wurde entfernt. Bereits importierte Kopien laufen lokal
+> unverändert weiter; für Neues bitte die aktuelle Version oben verwenden.
 
 ### Synchronisiere Datum+Uhrzeit zu Uhrzeit-Helfer
 
