@@ -209,8 +209,8 @@ blueprint:
           name: Sonnenschutz aktivieren
           description: >
             Benötigt zwingend den Status-Helfer (nächstes Feld) sowie die Werte im
-            Abschnitt "Fenstergeometrie & Sonnenausrichtung" — ohne sie bleibt der
-            Sonnenschutz wirkungslos.
+            Abschnitt "Fenstergeometrie & Sonnenausrichtung". Fehlt der Helfer,
+            erinnert eine dauerhafte Benachrichtigung in Home Assistant daran.
           default: false
           selector:
             boolean: {}
@@ -423,8 +423,8 @@ blueprint:
           name: Sonnenheizen aktivieren
           description: >
             Benötigt zwingend den Status-Helfer (nächstes Feld) sowie die Werte im
-            Abschnitt "Fenstergeometrie & Sonnenausrichtung" — ohne sie bleibt
-            Sonnenheizen wirkungslos.
+            Abschnitt "Fenstergeometrie & Sonnenausrichtung". Fehlt der Helfer,
+            erinnert eine dauerhafte Benachrichtigung in Home Assistant daran.
           default: false
           selector:
             boolean: {}
@@ -936,8 +936,24 @@ actions:
       - conditions:
           - condition: trigger
             id: shading_tick
-          - "{{ shading_status_helper is string }}"
         sequence:
+          # Fehlkonfiguration laut machen: Blueprints kennen keine bedingten
+          # Pflichtfelder — ohne diesen Hinweis bliebe ein aktivierter Sonnenschutz
+          # ohne Status-Helfer einfach still wirkungslos
+          - if:
+              - "{{ shading_status_helper is not string }}"
+            then:
+              - action: persistent_notification.create
+                data:
+                  notification_id: "rollladen_helfer_fehlt_{{ cover_entity | slugify }}"
+                  title: "Rollladensteuerung: Status-Helfer fehlt"
+                  message: >-
+                    Der Sonnenschutz für "{{ state_attr(cover_entity, 'friendly_name') or cover_entity }}"
+                    ist aktiviert, aber es ist kein Status-Helfer (input_boolean)
+                    ausgewählt — die Beschattung bleibt dadurch wirkungslos.
+                    Bitte in der Automation einen Helfer auswählen oder den
+                    Sonnenschutz deaktivieren.
+              - stop: "Sonnenschutz aktiviert, aber kein Status-Helfer konfiguriert"
           - variables:
               sun_elevation: "{{ state_attr('sun.sun', 'elevation') | float(0) }}"
               sun_azimuth: "{{ state_attr('sun.sun', 'azimuth') | float(0) }}"
@@ -1073,8 +1089,21 @@ actions:
       - conditions:
           - condition: trigger
             id: solar_heating_tick
-          - "{{ solar_heating_status_helper is string }}"
         sequence:
+          - if:
+              - "{{ solar_heating_status_helper is not string }}"
+            then:
+              - action: persistent_notification.create
+                data:
+                  notification_id: "rollladen_heizhelfer_fehlt_{{ cover_entity | slugify }}"
+                  title: "Rollladensteuerung: Status-Helfer fehlt"
+                  message: >-
+                    Sonnenheizen für "{{ state_attr(cover_entity, 'friendly_name') or cover_entity }}"
+                    ist aktiviert, aber es ist kein eigener Status-Helfer (input_boolean)
+                    ausgewählt — das Feature bleibt dadurch wirkungslos.
+                    Bitte in der Automation einen Helfer auswählen oder Sonnenheizen
+                    deaktivieren.
+              - stop: "Sonnenheizen aktiviert, aber kein Status-Helfer konfiguriert"
           - variables:
               sun_elevation: "{{ state_attr('sun.sun', 'elevation') | float(0) }}"
               sun_azimuth: "{{ state_attr('sun.sun', 'azimuth') | float(0) }}"
