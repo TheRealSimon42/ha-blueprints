@@ -627,7 +627,9 @@ blueprint:
             boolean: {}
     notification_section:
       name: Benachrichtigungen
-      description: Benachrichtigungen bei zu lange offenem oder gekipptem Fenster.
+      description: >
+        Benachrichtigungen bei zu lange offenem oder gekipptem Fenster. Wird das
+        Fenster geschlossen, verschwindet die Meldung automatisch vom Gerät.
       icon: mdi:bell
       collapsed: true
       input:
@@ -722,6 +724,7 @@ variables:
   notification_timeout_tilted: !input notification_timeout_tilted
   notification_device: !input notification_device
   action_id: "{{ 'CLOSE_SHUTTER__' ~ window_sensor }}"
+  notification_tag: "{{ 'fenster_offen_' ~ (window_sensor | slugify) }}"
   device_name_map: >
     {% set ns = namespace(device_names=[]) %}
     {% for device_id in notification_device %}
@@ -765,6 +768,14 @@ triggers:
     for:
       minutes: !input notification_timeout_tilted
     id: window_tilted_long
+  - trigger: state
+    entity_id: !input window_sensor
+    to:
+      - "off"
+      - "closed"
+    for:
+      seconds: 2
+    id: window_closed
   - trigger: state
     entity_id: !input night_mode_boolean
     to: "on"
@@ -1142,9 +1153,27 @@ actions:
                     title: "{{ title_text }}"
                     message: "{{ message_text }}"
                     data:
+                      # Gleicher Tag pro Fenster: "gekippt" ersetzt eine ältere
+                      # "offen"-Meldung, und das Schließen räumt sie wieder ab
+                      tag: "{{ notification_tag }}"
                       actions:
                         - action: "{{ action_id }}"
                           title: Rollladen schließen
+
+      # --- BENACHRICHTIGUNG ABRÄUMEN: FENSTER WIEDER ZU ---
+      - conditions:
+          - condition: trigger
+            id: window_closed
+          - "{{ device_name_map | length > 0 }}"
+        sequence:
+          - repeat:
+              for_each: "{{ device_name_map }}"
+              sequence:
+                - action: "notify.{{ repeat.item }}"
+                  data:
+                    message: clear_notification
+                    data:
+                      tag: "{{ notification_tag }}"
 
       # --- NOTIFICATION-ACTION: ROLLLADEN SCHLIESSEN ---
       - conditions:

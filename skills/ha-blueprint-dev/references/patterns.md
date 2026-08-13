@@ -178,6 +178,12 @@ gelöschte Geräte:
 
 Texte: `{%- -%}` gegen Whitespace, `friendly_name or entity_id` gegen None-Anzeige.
 
+Aufräumen: Meldungen mit `data.tag` versenden (eindeutig pro Instanz, z.B. Sensor-Slug).
+Gleicher Tag ersetzt ältere Meldungen desselben Fensters statt sie zu stapeln, und ein
+eigener Branch auf "Zustand erledigt" (z.B. Fenster zu) schickt `message: clear_notification`
+mit demselben Tag an alle Geräte — die Meldung verschwindet vom Gerät (iOS + Android).
+Ein Clear auf einen nie gesendeten Tag ist ein harmloser No-op, darf also immer feuern.
+
 ## 7. Beschattungs-Geometrie
 
 Eingaben, die ein Endnutzer messen kann: Fenster-Azimut, Fensterhöhe H, Brüstungshöhe
