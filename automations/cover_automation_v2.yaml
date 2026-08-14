@@ -631,6 +631,31 @@ blueprint:
           default: false
           selector:
             boolean: {}
+    pause_section:
+      name: Pausieren
+      description: >
+        Hält die Automation vorübergehend komplett an — z.B. während einer
+        Videoaufnahme (Licht!), wenn Gäste im Zimmer schlafen oder der
+        Fensterputzer da ist.
+      icon: mdi:pause-circle
+      collapsed: true
+      input:
+        pause_boolean:
+          name: Pausier-Helfer (optional)
+          description: >
+            Ein input_boolean-Helfer. Solange er eingeschaltet ist, macht die
+            Automatik nichts — keine Fahrten, keine Lichter, keine Meldungen.
+            Zwei Ausnahmen: Der Sturmschutz greift weiterhin (Hardware-Schutz geht
+            vor), und der "Rollladen schließen"-Knopf einer Benachrichtigung
+            funktioniert wie der Wandtaster — bewusste Befehle werden nicht blockiert.
+            Beim Ausschalten der Pause wird ein inzwischen aktiver Nachtmodus
+            nachgeholt und die Beschattung neu bewertet; verpasste Einzelereignisse
+            (z.B. das morgendliche Öffnen oder das Zurückfahren nach dem Lüften)
+            werden nicht nachgeholt.
+          default: []
+          selector:
+            entity:
+              domain: input_boolean
     notification_section:
       name: Benachrichtigungen
       description: >
@@ -724,6 +749,7 @@ variables:
   solar_heating_position: !input solar_heating_position
   mosquito_area_input: !input mosquito_area
   mosquito_exclude: !input mosquito_exclude
+  pause_boolean: !input pause_boolean
   sleep_mode_boolean: !input sleep_mode_boolean
   use_area_name: !input use_area_name
   notification_timeout: !input notification_timeout
@@ -783,6 +809,11 @@ triggers:
       seconds: 2
     id: window_closed
   - trigger: state
+    entity_id: !input pause_boolean
+    from: "on"
+    to: "off"
+    id: pause_ended
+  - trigger: state
     entity_id: !input night_mode_boolean
     to: "on"
     id: night_close
@@ -822,6 +853,12 @@ triggers:
     enabled: !input mosquito_enabled
 
 actions:
+  # Pausier-Helfer: hält die AUTOMATIK an, mit drei Ausnahmen — Sturmschutz
+  # (Hardware-Schutz geht vor), Benachrichtigungs-Aufräumen (bewegt nichts) und
+  # der Notification-Knopf (ein bewusster Nutzer-Befehl, wie der Wandtaster)
+  - condition: >-
+      {{ trigger.id | default('') in ['storm_detected', 'window_closed', 'close_shutter_action']
+         or not (pause_boolean is string and is_state(pause_boolean, 'on')) }}
   - choose:
       # --- MORGENS ÖFFNEN ---
       - conditions:
@@ -934,6 +971,57 @@ actions:
               - action: cover.close_cover
                 target:
                   entity_id: !input cover
+
+      # --- PAUSE BEENDET: ZUSTAND NACHHOLEN ---
+      - conditions:
+          - condition: trigger
+            id: pause_ended
+        sequence:
+          # Beschattungs-Status freigeben: Während der Pause ist der Sollwert
+          # weitergewandert — ohne Freigabe würde der erste Tick die Abweichung
+          # als manuellen Eingriff werten und bis Tagesende nicht mehr beschatten
+          - if:
+              - "{{ shading_status_helper is string and is_state(shading_status_helper, 'on') }}"
+            then:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: "{{ shading_status_helper }}"
+          # Verpassten Nachtmodus nachholen — "nachts offen" wäre der schlimmste
+          # während der Pause verpasste Zustand. Sturm hat weiterhin Vorrang.
+          - variables:
+              wind_now: >-
+                {% if storm_wind_sensor is string %}
+                  {{ states(storm_wind_sensor) | float(0) }}
+                {% elif weather_entity is string %}
+                  {{ state_attr(weather_entity, 'wind_speed') | float(0) }}
+                {% else %}
+                  0
+                {% endif %}
+          - if:
+              - "{{ night_mode_boolean is string and is_state(night_mode_boolean, 'on') }}"
+              - "{{ not storm_enabled or (wind_now | float(0)) < wind_speed_threshold }}"
+            then:
+              - choose:
+                  - conditions:
+                      - "{{ states(window_sensor) == 'tilted' }}"
+                    sequence:
+                      - action: cover.set_cover_position
+                        target:
+                          entity_id: !input cover
+                        data:
+                          position: !input tilted_position
+                  - conditions:
+                      - "{{ states(window_sensor) in ['on', 'open'] }}"
+                    sequence:
+                      - action: cover.set_cover_position
+                        target:
+                          entity_id: !input cover
+                        data:
+                          position: !input night_ventilation_position
+                default:
+                  - action: cover.close_cover
+                    target:
+                      entity_id: !input cover
 
       # --- SONNENSCHUTZ ---
       - conditions:
@@ -1366,6 +1454,7 @@ actions:
           # oder Sturm aktiv geworden sein, dann darf der Snapshot nicht zurückgeholt werden
           - variables:
               night_mode_on_now: "{{ night_mode_boolean is string and is_state(night_mode_boolean, 'on') }}"
+              pause_now: "{{ pause_boolean is string and is_state(pause_boolean, 'on') }}"
               wind_now: >-
                 {% if storm_wind_sensor is string %}
                   {{ states(storm_wind_sensor) | float(0) }}
@@ -1374,12 +1463,14 @@ actions:
                 {% else %}
                   0
                 {% endif %}
-              storm_now: "{{ storm_enabled and (wind_now | float(0)) > wind_speed_threshold }}"
+              storm_now: "{{ storm_enabled and (wind_now | float(0)) >= wind_speed_threshold }}"
           - if:
               - "{{ wait.trigger is none }}"
             then:
               - if:
                   - "{{ force_close }}"
+                  # Während der Pause wird auch nach Timeout nichts bewegt
+                  - "{{ not pause_now }}"
                 then:
                   - action: cover.close_cover
                     target:
@@ -1389,17 +1480,20 @@ actions:
                   # Fenster zu + Nachtmodus inzwischen aktiv → schließen statt restaurieren
                   - conditions:
                       - "{{ night_mode_on_now }}"
+                      - "{{ not pause_now }}"
                     sequence:
                       - action: cover.close_cover
                         target:
                           entity_id: !input cover
                   # Normalfall: Ausgangsposition wiederherstellen (nur wenn der
-                  # Snapshot existiert und kein Sturm aktiv ist). Existenz via expand
+                  # Snapshot existiert, kein Sturm aktiv ist und keine Pause läuft).
+                  # Existenz via expand
                   # prüfen — der State einer Szene ist ihr letzter Aktivierungs-
                   # Zeitstempel und steht bei nie aktivierten Szenen dauerhaft auf
                   # 'unknown'; ein State-Check würde den ersten Restore für immer blockieren
                   - conditions:
                       - "{{ not storm_now }}"
+                      - "{{ not pause_now }}"
                       - "{{ expand(reclose_scene) | count > 0 }}"
                     sequence:
                       - action: scene.turn_on

@@ -52,10 +52,13 @@ Fenster, bis der Helfer gesetzt oder das Feature deaktiviert ist.
 | Sonnenheizen        | Öffnet im Winter vergessene Rollos, wenn Sonne ins Fenster scheint und es kalt ist                                            | eigener Status-Helfer, Geometrie           |
 | Moskito-Modus       | Schaltet beim Fensteröffnen nach Sonnenuntergang die Lichter im Raum aus (mit Ausnahmen)                                      | — (Bereich kommt vom Fenstersensor)        |
 | Benachrichtigungen  | Meldet zu lange offene/gekippte Fenster aufs Handy, mit "Rollladen schließen"-Button; verschwindet automatisch beim Schließen | Companion-App-Geräte                       |
+| Pausieren           | Hält die komplette Automation an, solange ein Helfer eingeschaltet ist — z.B. während Videoaufnahmen oder wenn Gäste schlafen | `input_boolean`-Helfer (optional)          |
 
 **Prioritäten:** Der **Sturmschutz gewinnt immer** — bei Starkwind bewegen weder
-Morgens-Öffnen noch Beschattung, Sonnenheizen oder das Zurückfahren den Rollladen.
-Danach kommt der Nachtmodus (nachts wird nicht beschattet, nicht geheizt und beim
+Morgens-Öffnen noch Beschattung, Sonnenheizen oder das Zurückfahren den Rollladen,
+und auch der Pausier-Helfer hält ihn nicht auf (Schutz der Hardware geht vor).
+Danach kommt die Pause (solange ihr Helfer an ist, passiert sonst gar nichts),
+dann der Nachtmodus (nachts wird nicht beschattet, nicht geheizt und beim
 Fensteröffnen nur bis zur Lüftungsposition geöffnet), dann erst die Komfort-Features.
 
 ## Verhalten verstehen
@@ -147,3 +150,13 @@ heizen unter 12 °C); die Schwellen sollten sich nicht überlappen.
 **Die Fenster-offen-Meldung bleibt auf dem Handy stehen?** Sie verschwindet
 automatisch, sobald das Fenster geschlossen wird — vorausgesetzt, die Companion-App
 ist aktuell (das Aufräumen nutzt `clear_notification` mit Tags).
+
+**Kann ich die Automation zeitweise anhalten?** Ja — im Abschnitt "Pausieren" einen
+`input_boolean`-Helfer auswählen. Solange der an ist, macht die Automatik nichts:
+keine Fahrten, keine Lichter, keine Meldungen. Zwei Ausnahmen: Der Sturmschutz
+greift weiterhin, und der "Rollladen schließen"-Knopf einer Benachrichtigung
+funktioniert wie der Wandtaster — bewusste Befehle werden nicht blockiert.
+Praktisch für Videoaufnahmen (konstantes Licht!), schlafende Gäste oder den
+Fensterputzer. Beim Ausschalten holt die Automation einen inzwischen aktiven
+Nachtmodus nach und bewertet die Beschattung neu; verpasste Einzelereignisse
+(morgendliches Öffnen, Zurückfahren nach dem Lüften) werden nicht nachgeholt.
