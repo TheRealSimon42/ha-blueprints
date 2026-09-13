@@ -641,8 +641,8 @@ blueprint:
           description: >
             Deine Wetter-Entität (z.B. von DWD oder der Standard-Integration).
             Für den Sturmschutz wird ihr wind_speed-Attribut verwendet, sofern kein
-            Wind-Sensor gesetzt ist; außerdem dient sie als Temperatur-Fallback
-            für den Sonnenschutz.
+            Wind-Sensor gesetzt ist oder dieser gerade keinen gültigen Wert liefert;
+            außerdem dient sie als Temperatur-Fallback für den Sonnenschutz.
           default: []
           selector:
             entity:
@@ -653,7 +653,9 @@ blueprint:
             Alternativ zur Wetter-Entität: ein Sensor mit Windgeschwindigkeit, z.B.
             der Böen-Sensor deiner Wetterstation (Böen sind für den Sturmschutz meist
             aussagekräftiger als der Mittelwind). Wenn gesetzt, hat er Vorrang vor
-            der Wetter-Entität.
+            der Wetter-Entität; liefert er keinen gültigen Wert (unavailable/unknown),
+            springt deren wind_speed-Attribut ein — beide Quellen müssen dann dieselbe
+            Einheit liefern, weil ein gemeinsamer Grenzwert gilt.
           default: []
           selector:
             entity:
@@ -803,6 +805,19 @@ variables:
   wind_speed_threshold: !input wind_speed_threshold
   panzer_mode: !input panzer_mode
   force_storm_action: !input force_storm_action
+  # Eine Windquelle für alle Sturm-Prüfungen: Der Wind-Sensor hat Vorrang; ist
+  # sein Zustand nicht numerisch (unavailable/unknown), springt das wind_speed-
+  # Attribut der Wetter-Entität ein. Ohne gültigen Wert gilt weiterhin
+  # "windstill" (bewusst, siehe Doku "Bekannte Grenzen")
+  wind_now: >-
+    {% if storm_wind_sensor is string and is_number(states(storm_wind_sensor)) %}
+      {{ states(storm_wind_sensor) | float }}
+    {% elif weather_entity is string and is_number(state_attr(weather_entity, 'wind_speed')) %}
+      {{ state_attr(weather_entity, 'wind_speed') | float }}
+    {% else %}
+      0
+    {% endif %}
+  storm_now: "{{ storm_enabled and (wind_now | float(0)) >= wind_speed_threshold }}"
   shading_status_helper: !input shading_status_helper
   window_azimuth: !input window_azimuth
   shading_fov_left: !input shading_fov_left
@@ -859,9 +874,13 @@ variables:
     {{ ns.device_names }}
 
 # Nur für Trigger-Templates: filtert den Notification-Action-Event bereits im
-# Trigger, damit nicht jede Notification-Action jeder Instanz einen Lauf startet
+# Trigger, damit nicht jede Notification-Action jeder Instanz einen Lauf startet,
+# und liefert dem Sturm-Trigger die Windquelle
 trigger_variables:
   window_sensor_tv: !input window_sensor
+  storm_wind_sensor_tv: !input storm_wind_sensor
+  weather_entity_tv: !input weather_entity
+  wind_speed_threshold_tv: !input wind_speed_threshold
 
 triggers:
   - trigger: time
@@ -916,15 +935,19 @@ triggers:
     entity_id: !input night_mode_boolean
     to: "on"
     id: night_close
-  - trigger: numeric_state
-    entity_id: !input weather_entity
-    attribute: wind_speed
-    above: !input wind_speed_threshold
-    id: storm_detected
-    enabled: !input storm_enabled
-  - trigger: numeric_state
-    entity_id: !input storm_wind_sensor
-    above: !input wind_speed_threshold
+  # Ein Trigger für beide Windquellen mit derselben Priorität wie wind_now.
+  # Zwei getrennte numeric_state-Trigger feuern unabhängig voneinander: Ein auf
+  # die Sensor-Einheit umgerechneter Grenzwert (z.B. 15 m/s) löst dann über die
+  # Wetter-Entität (km/h) dauernd aus
+  - trigger: template
+    value_template: >-
+      {% if storm_wind_sensor_tv is string and is_number(states(storm_wind_sensor_tv)) %}
+        {{ states(storm_wind_sensor_tv) | float >= wind_speed_threshold_tv }}
+      {% elif weather_entity_tv is string and is_number(state_attr(weather_entity_tv, 'wind_speed')) %}
+        {{ state_attr(weather_entity_tv, 'wind_speed') | float >= wind_speed_threshold_tv }}
+      {% else %}
+        false
+      {% endif %}
     id: storm_detected
     enabled: !input storm_enabled
   - trigger: event
@@ -966,16 +989,7 @@ actions:
         sequence:
           # Sturm hat immer Vorrang: bei Starkwind wird morgens nicht bewegt
           # (im Panzer-Modus wäre das Öffnen direkt kontraproduktiv)
-          - variables:
-              wind_now: >-
-                {% if storm_wind_sensor is string %}
-                  {{ states(storm_wind_sensor) | float(0) }}
-                {% elif weather_entity is string %}
-                  {{ state_attr(weather_entity, 'wind_speed') | float(0) }}
-                {% else %}
-                  0
-                {% endif %}
-          - condition: "{{ not storm_enabled or (wind_now | float(0)) < wind_speed_threshold }}"
+          - condition: "{{ not storm_now }}"
           - choose:
               - conditions:
                   - "{{ state_attr(cover_entity, 'current_position') is not none }}"
@@ -1099,18 +1113,9 @@ actions:
                   entity_id: "{{ shading_status_helper }}"
           # Verpassten Nachtmodus nachholen — "nachts offen" wäre der schlimmste
           # während der Pause verpasste Zustand. Sturm hat weiterhin Vorrang.
-          - variables:
-              wind_now: >-
-                {% if storm_wind_sensor is string %}
-                  {{ states(storm_wind_sensor) | float(0) }}
-                {% elif weather_entity is string %}
-                  {{ state_attr(weather_entity, 'wind_speed') | float(0) }}
-                {% else %}
-                  0
-                {% endif %}
           - if:
               - "{{ night_mode_boolean is string and is_state(night_mode_boolean, 'on') }}"
-              - "{{ not storm_enabled or (wind_now | float(0)) < wind_speed_threshold }}"
+              - "{{ not storm_now }}"
             then:
               - choose:
                   - conditions:
@@ -1172,15 +1177,7 @@ actions:
                 {% else %}
                   -99
                 {% endif %}
-              wind_now: >-
-                {% if storm_wind_sensor is string %}
-                  {{ states(storm_wind_sensor) | float(0) }}
-                {% elif weather_entity is string %}
-                  {{ state_attr(weather_entity, 'wind_speed') | float(0) }}
-                {% else %}
-                  0
-                {% endif %}
-              storm_ok: "{{ not storm_enabled or (wind_now | float(0)) < wind_speed_threshold }}"
+              storm_ok: "{{ not storm_now }}"
               # Ist die Temperaturquelle gerade verfügbar? Ein kurzer unavailable-Blip
               # (Integrations-Reload, Funk-Aussetzer) darf eine laufende Beschattung
               # nicht beenden — unavailable heißt "Zustand halten", nicht "abbrechen"
@@ -1340,15 +1337,7 @@ actions:
                   false
                 {% endif %}
               night_mode_on: "{{ night_mode_boolean is string and is_state(night_mode_boolean, 'on') }}"
-              wind_now: >-
-                {% if storm_wind_sensor is string %}
-                  {{ states(storm_wind_sensor) | float(0) }}
-                {% elif weather_entity is string %}
-                  {{ state_attr(weather_entity, 'wind_speed') | float(0) }}
-                {% else %}
-                  0
-                {% endif %}
-              storm_ok: "{{ not storm_enabled or (wind_now | float(0)) < wind_speed_threshold }}"
+              storm_ok: "{{ not storm_now }}"
           - choose:
               # Sonnenheizen starten: heruntergelassenen Rollladen öffnen.
               # Der Sturmschutz hat immer Vorrang: bei Starkwind wird nicht geöffnet
@@ -1579,10 +1568,10 @@ actions:
                    and found | length > 0
                    and found | rejectattr('state', 'eq', pausing) | list | length == 0 }}
               wind_now: >-
-                {% if storm_wind_sensor is string %}
-                  {{ states(storm_wind_sensor) | float(0) }}
-                {% elif weather_entity is string %}
-                  {{ state_attr(weather_entity, 'wind_speed') | float(0) }}
+                {% if storm_wind_sensor is string and is_number(states(storm_wind_sensor)) %}
+                  {{ states(storm_wind_sensor) | float }}
+                {% elif weather_entity is string and is_number(state_attr(weather_entity, 'wind_speed')) %}
+                  {{ state_attr(weather_entity, 'wind_speed') | float }}
                 {% else %}
                   0
                 {% endif %}
