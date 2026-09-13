@@ -950,6 +950,45 @@ triggers:
       {% endif %}
     id: storm_detected
     enabled: !input storm_enabled
+  # Sturm nachholen: Der Template-Trigger feuert nur beim Wechsel auf "wahr". Ein
+  # Sturm, der beim Start von Home Assistant oder beim Neuladen der Automation
+  # bereits herrscht, wird deshalb zusätzlich aktiv geprüft (der Sturm-Zweig
+  # prüft storm_now selbst und tut ohne Starkwind nichts)
+  - trigger: homeassistant
+    event: start
+    id: storm_detected
+    enabled: !input storm_enabled
+  - trigger: event
+    event_type: automation_reloaded
+    id: storm_detected
+    enabled: !input storm_enabled
+  # War der Rollladen beim Sturm-Befehl nicht verfügbar (Neustart, Funk-Aussetzer),
+  # wird die Schutzstellung nach seiner Rückkehr erneut angefordert
+  - trigger: state
+    entity_id: !input cover
+    from:
+      - "unavailable"
+      - "unknown"
+    to:
+      - "open"
+      - "closed"
+      - "opening"
+      - "closing"
+    id: storm_cover_available
+    enabled: !input storm_enabled
+  # Wurde der Sturm bei offenem Fenster erkannt (ohne "Aktion erzwingen"), wird
+  # die Schutzstellung direkt nach dem Schließen nachgeholt. Eigene ID trotz
+  # identischem Trigger wie window_closed: choose führt nur den ersten passenden
+  # Zweig aus, und window_closed gehört dem Benachrichtigungs-Aufräumen
+  - trigger: state
+    entity_id: !input window_sensor
+    to:
+      - "off"
+      - "closed"
+    for:
+      seconds: 2
+    id: storm_window_closed
+    enabled: !input storm_enabled
   - trigger: event
     event_type: mobile_app_notification_action
     event_data:
@@ -979,7 +1018,7 @@ actions:
   # (Hardware-Schutz geht vor), Benachrichtigungs-Aufräumen (bewegt nichts) und
   # der Notification-Knopf (ein bewusster Nutzer-Befehl, wie der Wandtaster)
   - condition: >-
-      {{ trigger.id | default('') in ['storm_detected', 'window_closed', 'close_shutter_action']
+      {{ trigger.id | default('') in ['storm_detected', 'storm_cover_available', 'storm_window_closed', 'window_closed', 'close_shutter_action']
          or not pause_active }}
   - choose:
       # --- MORGENS ÖFFNEN ---
@@ -1062,7 +1101,13 @@ actions:
       # --- STURMSCHUTZ ---
       - conditions:
           - condition: trigger
-            id: storm_detected
+            id:
+              - storm_detected
+              - storm_cover_available
+              - storm_window_closed
+          # Die Nachhol-Trigger (Start, Reload, Cover, Fenster) feuern auch ohne
+          # Sturm — gefahren wird nur, wenn gerade wirklich Starkwind herrscht
+          - "{{ storm_now }}"
           - "{{ force_storm_action or states(window_sensor) in ['off', 'closed'] }}"
         sequence:
           # Beschattungs-Status zurücksetzen: Die Sturm-Bewegung darf nicht als
