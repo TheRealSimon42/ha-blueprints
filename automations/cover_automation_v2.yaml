@@ -833,13 +833,15 @@ variables:
   pause_mode: !input pause_mode
   # Pausiert = ALLE ausgewählten Helfer stehen im Pausier-Zustand. Ältere
   # Instanzen speichern einen einzelnen Helfer als String statt Liste — beides
-  # wird unterstützt. Nicht existierende/unavailable Helfer pausieren nie (fail-safe).
+  # wird unterstützt. Nicht existierende/unavailable Helfer pausieren nie (fail-safe):
+  # Ein gelöschter Helfer fällt aus expand() heraus und darf die Pause nicht den
+  # übrigen Helfern überlassen — dieselbe Regel wie im Pause-Ende-Zweig.
   pause_active: >-
     {% set helpers = [pause_boolean] if pause_boolean is string else pause_boolean %}
     {% set pausing = 'on' if pause_mode == 'on_pauses' else 'off' %}
     {% set found = expand(helpers) | list %}
     {{ helpers | length > 0
-       and found | length > 0
+       and found | length == helpers | length
        and found | rejectattr('state', 'eq', pausing) | list | length == 0 }}
   sleep_mode_boolean: !input sleep_mode_boolean
   use_area_name: !input use_area_name
@@ -1576,7 +1578,7 @@ actions:
                 {% set pausing = 'on' if pause_mode == 'on_pauses' else 'off' %}
                 {% set found = expand(helpers) | list %}
                 {{ helpers | length > 0
-                   and found | length > 0
+                   and found | length == helpers | length
                    and found | rejectattr('state', 'eq', pausing) | list | length == 0 }}
               wind_now: >-
                 {% if storm_wind_sensor is string %}
