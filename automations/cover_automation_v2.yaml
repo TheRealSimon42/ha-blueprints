@@ -1076,6 +1076,11 @@ actions:
               - action: input_boolean.turn_off
                 target:
                   entity_id: "{{ solar_heating_status_helper }}"
+          # Sturm hat Vorrang: Die Schutzstellung (offen, im Panzer-Modus zu) wird
+          # nachts nicht angetastet — sonst holt der Nachtmodus den Rollladen zurück
+          # in den Wind. Die Helfer sind trotzdem freigegeben (die Nacht beendet die
+          # Beschattung), damit nach dem Sturm frisch entschieden wird
+          - condition: "{{ not storm_now }}"
           - choose:
               - conditions:
                   - "{{ states(window_sensor) == 'tilted' or (treat_open_as_tilted and states(window_sensor) in ['on', 'open']) }}"
@@ -1119,6 +1124,15 @@ actions:
               - action: input_boolean.turn_off
                 target:
                   entity_id: "{{ shading_status_helper }}"
+          # Sonnenheizen ebenfalls freigeben: Die Sturmfahrt verlässt dessen
+          # Sollposition; im Panzer-Modus bliebe der Rollladen sonst nach dem Sturm
+          # bis zum Episoden-Ende unten, weil der Helfer den Neustart blockiert
+          - if:
+              - "{{ solar_heating_status_helper is string and is_state(solar_heating_status_helper, 'on') }}"
+            then:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: "{{ solar_heating_status_helper }}"
           - if:
               - "{{ not panzer_mode }}"
             then:
@@ -1318,6 +1332,9 @@ actions:
               # Beschattung beenden
               - conditions:
                   - "{{ is_state(shading_status_helper, 'on') }}"
+                  # Bei Sturm nicht bewegen (im Panzer-Modus würde das Ende die
+                  # Schutzstellung verlassen); den Helfer setzt der Sturm-Zweig zurück
+                  - "{{ storm_ok }}"
                   - >-
                     {{ (not sun_in_window)
                        or (temp_available and outdoor_temp <= (shading_temp_threshold - shading_temp_hysteresis))
@@ -1529,6 +1546,11 @@ actions:
           - condition: trigger
             id: window_change
         sequence:
+          # Bei Sturm mit "Aktion erzwingen" hat der Sturmschutz die alleinige
+          # Kontrolle: Kippen/Lüften würde die Schutzstellung verlassen (im
+          # Panzer-Modus den Rollladen öffnen). Ohne "erzwingen" gilt weiter die
+          # bewusst konfigurierte Fenster-Ausnahme
+          - condition: "{{ not storm_now or not force_storm_action }}"
           - variables:
               night_mode_on: "{{ night_mode_boolean is string and is_state(night_mode_boolean, 'on') }}"
               reclose_scene: "scene.reclose_{{ cover_entity | slugify }}"
@@ -1628,6 +1650,9 @@ actions:
                   - "{{ force_close }}"
                   # Während der Pause wird auch nach Timeout nichts bewegt
                   - "{{ not pause_now }}"
+                  # Die erzwungene Schließung darf eine offene Sturmstellung nicht
+                  # aufheben; im Panzer-Modus ist Schließen selbst die Schutzstellung
+                  - "{{ not storm_now or panzer_mode }}"
                 then:
                   - action: cover.close_cover
                     target:
@@ -1635,8 +1660,10 @@ actions:
             else:
               - choose:
                   # Fenster zu + Nachtmodus inzwischen aktiv → schließen statt restaurieren
+                  # (bei Sturm nicht — dann übernimmt der storm_window_closed-Lauf)
                   - conditions:
                       - "{{ night_mode_on_now }}"
+                      - "{{ not storm_now }}"
                       - "{{ not pause_now }}"
                     sequence:
                       - action: cover.close_cover
