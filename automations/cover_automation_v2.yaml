@@ -641,8 +641,8 @@ blueprint:
           description: >
             Deine Wetter-Entität (z.B. von DWD oder der Standard-Integration).
             Für den Sturmschutz wird ihr wind_speed-Attribut verwendet, sofern kein
-            Wind-Sensor gesetzt ist; außerdem dient sie als Temperatur-Fallback
-            für den Sonnenschutz.
+            Wind-Sensor gesetzt ist oder dieser gerade keinen gültigen Wert liefert;
+            außerdem dient sie als Temperatur-Fallback für den Sonnenschutz.
           default: []
           selector:
             entity:
@@ -653,7 +653,9 @@ blueprint:
             Alternativ zur Wetter-Entität: ein Sensor mit Windgeschwindigkeit, z.B.
             der Böen-Sensor deiner Wetterstation (Böen sind für den Sturmschutz meist
             aussagekräftiger als der Mittelwind). Wenn gesetzt, hat er Vorrang vor
-            der Wetter-Entität.
+            der Wetter-Entität; liefert er keinen gültigen Wert (unavailable/unknown),
+            springt deren wind_speed-Attribut ein — beide Quellen müssen dann dieselbe
+            Einheit liefern, weil ein gemeinsamer Grenzwert gilt.
           default: []
           selector:
             entity:
@@ -803,6 +805,19 @@ variables:
   wind_speed_threshold: !input wind_speed_threshold
   panzer_mode: !input panzer_mode
   force_storm_action: !input force_storm_action
+  # Eine Windquelle für alle Sturm-Prüfungen: Der Wind-Sensor hat Vorrang; ist
+  # sein Zustand nicht numerisch (unavailable/unknown), springt das wind_speed-
+  # Attribut der Wetter-Entität ein. Ohne gültigen Wert gilt weiterhin
+  # "windstill" (bewusst, siehe Doku "Bekannte Grenzen")
+  wind_now: >-
+    {% if storm_wind_sensor is string and is_number(states(storm_wind_sensor)) %}
+      {{ states(storm_wind_sensor) | float }}
+    {% elif weather_entity is string and is_number(state_attr(weather_entity, 'wind_speed')) %}
+      {{ state_attr(weather_entity, 'wind_speed') | float }}
+    {% else %}
+      0
+    {% endif %}
+  storm_now: "{{ storm_enabled and (wind_now | float(0)) >= wind_speed_threshold }}"
   shading_status_helper: !input shading_status_helper
   window_azimuth: !input window_azimuth
   shading_fov_left: !input shading_fov_left
@@ -859,9 +874,13 @@ variables:
     {{ ns.device_names }}
 
 # Nur für Trigger-Templates: filtert den Notification-Action-Event bereits im
-# Trigger, damit nicht jede Notification-Action jeder Instanz einen Lauf startet
+# Trigger, damit nicht jede Notification-Action jeder Instanz einen Lauf startet,
+# und liefert dem Sturm-Trigger die Windquelle
 trigger_variables:
   window_sensor_tv: !input window_sensor
+  storm_wind_sensor_tv: !input storm_wind_sensor
+  weather_entity_tv: !input weather_entity
+  wind_speed_threshold_tv: !input wind_speed_threshold
 
 triggers:
   - trigger: time
@@ -916,16 +935,59 @@ triggers:
     entity_id: !input night_mode_boolean
     to: "on"
     id: night_close
-  - trigger: numeric_state
-    entity_id: !input weather_entity
-    attribute: wind_speed
-    above: !input wind_speed_threshold
+  # Ein Trigger für beide Windquellen mit derselben Priorität wie wind_now.
+  # Zwei getrennte numeric_state-Trigger feuern unabhängig voneinander: Ein auf
+  # die Sensor-Einheit umgerechneter Grenzwert (z.B. 15 m/s) löst dann über die
+  # Wetter-Entität (km/h) dauernd aus
+  - trigger: template
+    value_template: >-
+      {% if storm_wind_sensor_tv is string and is_number(states(storm_wind_sensor_tv)) %}
+        {{ states(storm_wind_sensor_tv) | float >= wind_speed_threshold_tv }}
+      {% elif weather_entity_tv is string and is_number(state_attr(weather_entity_tv, 'wind_speed')) %}
+        {{ state_attr(weather_entity_tv, 'wind_speed') | float >= wind_speed_threshold_tv }}
+      {% else %}
+        false
+      {% endif %}
     id: storm_detected
     enabled: !input storm_enabled
-  - trigger: numeric_state
-    entity_id: !input storm_wind_sensor
-    above: !input wind_speed_threshold
+  # Sturm nachholen: Der Template-Trigger feuert nur beim Wechsel auf "wahr". Ein
+  # Sturm, der beim Start von Home Assistant oder beim Neuladen der Automation
+  # bereits herrscht, wird deshalb zusätzlich aktiv geprüft (der Sturm-Zweig
+  # prüft storm_now selbst und tut ohne Starkwind nichts)
+  - trigger: homeassistant
+    event: start
     id: storm_detected
+    enabled: !input storm_enabled
+  - trigger: event
+    event_type: automation_reloaded
+    id: storm_detected
+    enabled: !input storm_enabled
+  # War der Rollladen beim Sturm-Befehl nicht verfügbar (Neustart, Funk-Aussetzer),
+  # wird die Schutzstellung nach seiner Rückkehr erneut angefordert
+  - trigger: state
+    entity_id: !input cover
+    from:
+      - "unavailable"
+      - "unknown"
+    to:
+      - "open"
+      - "closed"
+      - "opening"
+      - "closing"
+    id: storm_cover_available
+    enabled: !input storm_enabled
+  # Wurde der Sturm bei offenem Fenster erkannt (ohne "Aktion erzwingen"), wird
+  # die Schutzstellung direkt nach dem Schließen nachgeholt. Eigene ID trotz
+  # identischem Trigger wie window_closed: choose führt nur den ersten passenden
+  # Zweig aus, und window_closed gehört dem Benachrichtigungs-Aufräumen
+  - trigger: state
+    entity_id: !input window_sensor
+    to:
+      - "off"
+      - "closed"
+    for:
+      seconds: 2
+    id: storm_window_closed
     enabled: !input storm_enabled
   - trigger: event
     event_type: mobile_app_notification_action
@@ -956,7 +1018,7 @@ actions:
   # (Hardware-Schutz geht vor), Benachrichtigungs-Aufräumen (bewegt nichts) und
   # der Notification-Knopf (ein bewusster Nutzer-Befehl, wie der Wandtaster)
   - condition: >-
-      {{ trigger.id | default('') in ['storm_detected', 'window_closed', 'close_shutter_action']
+      {{ trigger.id | default('') in ['storm_detected', 'storm_cover_available', 'storm_window_closed', 'window_closed', 'close_shutter_action']
          or not pause_active }}
   - choose:
       # --- MORGENS ÖFFNEN ---
@@ -966,16 +1028,7 @@ actions:
         sequence:
           # Sturm hat immer Vorrang: bei Starkwind wird morgens nicht bewegt
           # (im Panzer-Modus wäre das Öffnen direkt kontraproduktiv)
-          - variables:
-              wind_now: >-
-                {% if storm_wind_sensor is string %}
-                  {{ states(storm_wind_sensor) | float(0) }}
-                {% elif weather_entity is string %}
-                  {{ state_attr(weather_entity, 'wind_speed') | float(0) }}
-                {% else %}
-                  0
-                {% endif %}
-          - condition: "{{ not storm_enabled or (wind_now | float(0)) < wind_speed_threshold }}"
+          - condition: "{{ not storm_now }}"
           - choose:
               - conditions:
                   - "{{ state_attr(cover_entity, 'current_position') is not none }}"
@@ -1023,6 +1076,11 @@ actions:
               - action: input_boolean.turn_off
                 target:
                   entity_id: "{{ solar_heating_status_helper }}"
+          # Sturm hat Vorrang: Die Schutzstellung (offen, im Panzer-Modus zu) wird
+          # nachts nicht angetastet — sonst holt der Nachtmodus den Rollladen zurück
+          # in den Wind. Die Helfer sind trotzdem freigegeben (die Nacht beendet die
+          # Beschattung), damit nach dem Sturm frisch entschieden wird
+          - condition: "{{ not storm_now }}"
           - choose:
               - conditions:
                   - "{{ states(window_sensor) == 'tilted' or (treat_open_as_tilted and states(window_sensor) in ['on', 'open']) }}"
@@ -1048,7 +1106,13 @@ actions:
       # --- STURMSCHUTZ ---
       - conditions:
           - condition: trigger
-            id: storm_detected
+            id:
+              - storm_detected
+              - storm_cover_available
+              - storm_window_closed
+          # Die Nachhol-Trigger (Start, Reload, Cover, Fenster) feuern auch ohne
+          # Sturm — gefahren wird nur, wenn gerade wirklich Starkwind herrscht
+          - "{{ storm_now }}"
           - "{{ force_storm_action or states(window_sensor) in ['off', 'closed'] }}"
         sequence:
           # Beschattungs-Status zurücksetzen: Die Sturm-Bewegung darf nicht als
@@ -1060,6 +1124,15 @@ actions:
               - action: input_boolean.turn_off
                 target:
                   entity_id: "{{ shading_status_helper }}"
+          # Sonnenheizen ebenfalls freigeben: Die Sturmfahrt verlässt dessen
+          # Sollposition; im Panzer-Modus bliebe der Rollladen sonst nach dem Sturm
+          # bis zum Episoden-Ende unten, weil der Helfer den Neustart blockiert
+          - if:
+              - "{{ solar_heating_status_helper is string and is_state(solar_heating_status_helper, 'on') }}"
+            then:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: "{{ solar_heating_status_helper }}"
           - if:
               - "{{ not panzer_mode }}"
             then:
@@ -1099,18 +1172,9 @@ actions:
                   entity_id: "{{ shading_status_helper }}"
           # Verpassten Nachtmodus nachholen — "nachts offen" wäre der schlimmste
           # während der Pause verpasste Zustand. Sturm hat weiterhin Vorrang.
-          - variables:
-              wind_now: >-
-                {% if storm_wind_sensor is string %}
-                  {{ states(storm_wind_sensor) | float(0) }}
-                {% elif weather_entity is string %}
-                  {{ state_attr(weather_entity, 'wind_speed') | float(0) }}
-                {% else %}
-                  0
-                {% endif %}
           - if:
               - "{{ night_mode_boolean is string and is_state(night_mode_boolean, 'on') }}"
-              - "{{ not storm_enabled or (wind_now | float(0)) < wind_speed_threshold }}"
+              - "{{ not storm_now }}"
             then:
               - choose:
                   - conditions:
@@ -1172,15 +1236,7 @@ actions:
                 {% else %}
                   -99
                 {% endif %}
-              wind_now: >-
-                {% if storm_wind_sensor is string %}
-                  {{ states(storm_wind_sensor) | float(0) }}
-                {% elif weather_entity is string %}
-                  {{ state_attr(weather_entity, 'wind_speed') | float(0) }}
-                {% else %}
-                  0
-                {% endif %}
-              storm_ok: "{{ not storm_enabled or (wind_now | float(0)) < wind_speed_threshold }}"
+              storm_ok: "{{ not storm_now }}"
               # Ist die Temperaturquelle gerade verfügbar? Ein kurzer unavailable-Blip
               # (Integrations-Reload, Funk-Aussetzer) darf eine laufende Beschattung
               # nicht beenden — unavailable heißt "Zustand halten", nicht "abbrechen"
@@ -1276,6 +1332,9 @@ actions:
               # Beschattung beenden
               - conditions:
                   - "{{ is_state(shading_status_helper, 'on') }}"
+                  # Bei Sturm nicht bewegen (im Panzer-Modus würde das Ende die
+                  # Schutzstellung verlassen); den Helfer setzt der Sturm-Zweig zurück
+                  - "{{ storm_ok }}"
                   - >-
                     {{ (not sun_in_window)
                        or (temp_available and outdoor_temp <= (shading_temp_threshold - shading_temp_hysteresis))
@@ -1340,15 +1399,7 @@ actions:
                   false
                 {% endif %}
               night_mode_on: "{{ night_mode_boolean is string and is_state(night_mode_boolean, 'on') }}"
-              wind_now: >-
-                {% if storm_wind_sensor is string %}
-                  {{ states(storm_wind_sensor) | float(0) }}
-                {% elif weather_entity is string %}
-                  {{ state_attr(weather_entity, 'wind_speed') | float(0) }}
-                {% else %}
-                  0
-                {% endif %}
-              storm_ok: "{{ not storm_enabled or (wind_now | float(0)) < wind_speed_threshold }}"
+              storm_ok: "{{ not storm_now }}"
           - choose:
               # Sonnenheizen starten: heruntergelassenen Rollladen öffnen.
               # Der Sturmschutz hat immer Vorrang: bei Starkwind wird nicht geöffnet
@@ -1495,6 +1546,11 @@ actions:
           - condition: trigger
             id: window_change
         sequence:
+          # Bei Sturm mit "Aktion erzwingen" hat der Sturmschutz die alleinige
+          # Kontrolle: Kippen/Lüften würde die Schutzstellung verlassen (im
+          # Panzer-Modus den Rollladen öffnen). Ohne "erzwingen" gilt weiter die
+          # bewusst konfigurierte Fenster-Ausnahme
+          - condition: "{{ not storm_now or not force_storm_action }}"
           - variables:
               night_mode_on: "{{ night_mode_boolean is string and is_state(night_mode_boolean, 'on') }}"
               reclose_scene: "scene.reclose_{{ cover_entity | slugify }}"
@@ -1579,10 +1635,10 @@ actions:
                    and found | length > 0
                    and found | rejectattr('state', 'eq', pausing) | list | length == 0 }}
               wind_now: >-
-                {% if storm_wind_sensor is string %}
-                  {{ states(storm_wind_sensor) | float(0) }}
-                {% elif weather_entity is string %}
-                  {{ state_attr(weather_entity, 'wind_speed') | float(0) }}
+                {% if storm_wind_sensor is string and is_number(states(storm_wind_sensor)) %}
+                  {{ states(storm_wind_sensor) | float }}
+                {% elif weather_entity is string and is_number(state_attr(weather_entity, 'wind_speed')) %}
+                  {{ state_attr(weather_entity, 'wind_speed') | float }}
                 {% else %}
                   0
                 {% endif %}
@@ -1594,6 +1650,9 @@ actions:
                   - "{{ force_close }}"
                   # Während der Pause wird auch nach Timeout nichts bewegt
                   - "{{ not pause_now }}"
+                  # Die erzwungene Schließung darf eine offene Sturmstellung nicht
+                  # aufheben; im Panzer-Modus ist Schließen selbst die Schutzstellung
+                  - "{{ not storm_now or panzer_mode }}"
                 then:
                   - action: cover.close_cover
                     target:
@@ -1601,8 +1660,10 @@ actions:
             else:
               - choose:
                   # Fenster zu + Nachtmodus inzwischen aktiv → schließen statt restaurieren
+                  # (bei Sturm nicht — dann übernimmt der storm_window_closed-Lauf)
                   - conditions:
                       - "{{ night_mode_on_now }}"
+                      - "{{ not storm_now }}"
                       - "{{ not pause_now }}"
                     sequence:
                       - action: cover.close_cover

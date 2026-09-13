@@ -55,7 +55,8 @@ Fenster, bis der Helfer gesetzt oder das Feature deaktiviert ist.
 | Pausieren           | Hält die komplette Automation an, solange ein Helfer eingeschaltet ist — z.B. während Videoaufnahmen oder wenn Gäste schlafen    | `input_boolean`-Helfer (optional)          |
 
 **Prioritäten:** Der **Sturmschutz gewinnt immer** — bei Starkwind bewegen weder
-Morgens-Öffnen noch Beschattung, Sonnenheizen oder das Zurückfahren den Rollladen,
+Morgens-Öffnen, Nachtmodus, Beschattung, Sonnenheizen noch das Zurückfahren (auch
+nicht das erzwungene Schließen nach Ablauf des Zeitfensters) den Rollladen,
 und auch der Pausier-Helfer hält ihn nicht auf (Schutz der Hardware geht vor).
 Danach kommt die Pause (solange ihr Helfer an ist, passiert sonst gar nichts),
 dann der Nachtmodus (nachts wird nicht beschattet, nicht geheizt und beim
@@ -124,7 +125,10 @@ die Einmal-Logik des Sonnenheizens und die Eingriffs-Erkennung auf.
 
 - **Wind-Sensor kurz nicht verfügbar** zählt als "windstill". Bewusste Entscheidung:
   Ein dauerhaft toter Sensor soll nicht sämtliche Komfort-Funktionen lahmlegen. Der
-  Sturmschutz selbst hat beim Überschreiten des Grenzwerts längst ausgelöst.
+  Sturmschutz selbst hat beim Überschreiten des Grenzwerts längst ausgelöst. Ist
+  zusätzlich eine Wetter-Entität gesetzt, springt deren `wind_speed` so lange ein —
+  beide Quellen müssen dann dieselbe Einheit liefern, denn es gilt ein gemeinsamer
+  Grenzwert.
 - **Wetterlagen-Filter:** Flattert das Wetter zwischen zwei _nicht_ erlaubten Lagen
   (z. B. Regen ↔ Starkregen), beendet erst Sonnenstand oder Temperatur die
   Beschattung. Der Filter beendet nur bei mindestens 10 Minuten stabil schlechter Lage.
@@ -134,6 +138,11 @@ die Einmal-Logik des Sonnenheizens und die Eingriffs-Erkennung auf.
   m/s statt km/h, muss der Grenzwert entsprechend gesetzt werden.
 - **Sturm-Ende:** Nach dem Sturm bleibt der Rollladen in der Schutzposition, bis das
   nächste reguläre Ereignis (Nachtmodus, Morgens, Beschattung) ihn übernimmt.
+- **Sturm-Beginn wird nachgeholt:** Herrscht beim Start von Home Assistant oder beim
+  Neuladen der Automation bereits Starkwind, war der Rollladen beim Sturm-Befehl nicht
+  verfügbar oder stand das Fenster offen (ohne "Aktion erzwingen"), fährt der Rollladen
+  die Schutzposition an, sobald der Grund entfällt. Ein Sturm, der während eines
+  längeren Ausfalls der Windquelle beginnt, wird mit dem nächsten gültigen Wert erkannt.
 
 ## FAQ
 
