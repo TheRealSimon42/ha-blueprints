@@ -9,7 +9,7 @@
 **Eine Automation pro Fenster/Rollladen-Paar.** Du legst für jedes Fenster eine eigene
 Instanz aus diesem Blueprint an und wählst dort genau einen Rollladen und genau einen
 Fensterkontakt aus. Als Fensterkontakt funktionieren klassische binäre Sensoren
-(offen/geschlossen) genauso wie Drei-Zustands-Sensoren (offen/gekippt/geschlossen). Gemeinsame Einstellungen — die Uhrzeit fürs
+(offen/geschlossen) genauso wie Drei-Zustands-Sensoren (offen/gekippt/geschlossen). Gemeinsame Einstellungen — die Uhrzeiten fürs
 morgendliche Öffnen, der Nachtmodus-Schalter, die Wetter-Entität — sind Helfer, die du
 einfach in allen Instanzen identisch auswählst.
 
@@ -27,6 +27,10 @@ darüber hinaus ist per Schalter zuschaltbar.
    Helfer_):
    - Morgens öffnen: ein `input_datetime`-Helfer, **nur mit Uhrzeit, ohne Datum**
      (ein Datum+Zeit-Helfer feuert nur ein einziges Mal!). Einer für alle Instanzen.
+     Optional kann ein zweiter `input_datetime`-Helfer als **Wochenend-Uhrzeit**
+     ausgewählt werden. Dann gilt die normale Uhrzeit Montag bis Freitag und die
+     separate Uhrzeit Samstag und Sonntag. Ohne Wochenend-Helfer gilt die normale
+     Uhrzeit weiterhin an allen Tagen.
    - Nachtmodus: ein `input_boolean`, z. B. "Nacht-Modus". Einer für alle Instanzen;
      wie er geschaltet wird (Zeitplan, Guten-Nacht-Szene, von Hand), bleibt dir überlassen.
    - Sonnenschutz: ein `input_boolean` **pro Fenster** als Status-Speicher,
@@ -44,7 +48,7 @@ Fenster, bis der Helfer gesetzt oder das Feature deaktiviert ist.
 
 | Feature             | Was es tut                                                                                                                       | Voraussetzung                              |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| Morgens öffnen      | Fährt zur eingestellten Uhrzeit auf die Zielposition (nur wenn geschlossener)                                                    | `input_datetime`-Helfer (nur Uhrzeit)      |
+| Morgens öffnen      | Fährt zur eingestellten Uhrzeit auf die Zielposition; optional mit separater Uhrzeit für Samstag/Sonntag (nur wenn geschlossener) | `input_datetime`-Helfer (nur Uhrzeit)      |
 | Fenster-Interaktion | Kippen → Lüftungsposition, Öffnen → ganz auf (optional: wie Kippen behandeln); nach dem Schließen zurück in die Ausgangsposition | — (immer aktiv)                            |
 | Nachtmodus          | Schließt beim Einschalten des Helfers; offene/gekippte Fenster bekommen eine Lüftungsposition                                    | `input_boolean`-Helfer                     |
 | Sturmschutz         | Fährt bei Starkwind hoch (oder im Panzer-Modus herunter)                                                                         | Wetter-Entität oder Wind-Sensor            |
@@ -62,6 +66,17 @@ dann der Nachtmodus (nachts wird nicht beschattet, nicht geheizt und beim
 Fensteröffnen nur bis zur Lüftungsposition geöffnet), dann erst die Komfort-Features.
 
 ## Verhalten verstehen
+
+### Unterschiedliche Morgen-Uhrzeit am Wochenende
+
+Für Samstag und Sonntag kann optional ein zweiter `input_datetime`-Helfer ausgewählt
+werden. Sobald dieser gesetzt ist, verwendet die Automation montags bis freitags die
+normale **Uhrzeit für morgendliches Hochfahren** und samstags/sonntags die
+**Wochenend-Uhrzeit**.
+
+Bleibt das Wochenend-Feld leer, ändert sich nichts am bisherigen Verhalten: Die normale
+Morgen-Uhrzeit gilt an allen sieben Tagen. Damit bleiben bestehende Blueprint-Instanzen
+ohne Anpassung kompatibel.
 
 ### Sichtfeld und Geometrie
 
@@ -136,6 +151,11 @@ die Einmal-Logik des Sonnenheizens und die Eingriffs-Erkennung auf.
   nächste reguläre Ereignis (Nachtmodus, Morgens, Beschattung) ihn übernimmt.
 
 ## FAQ
+
+**Kann der Rollladen am Wochenende später öffnen?** Ja. Im Abschnitt "Morgens öffnen"
+kannst du optional einen zweiten `input_datetime`-Helfer als Wochenend-Uhrzeit
+auswählen. Dieser gilt ausschließlich Samstag und Sonntag. Bleibt das Feld leer,
+wird die normale Morgen-Uhrzeit an allen Tagen verwendet.
 
 **Was bedeuten 0 % und 100 % bei den Positionen?** Das Blueprint folgt der
 Home-Assistant-Konvention: 100 % = ganz offen, 0 % = ganz geschlossen. Die Prozente

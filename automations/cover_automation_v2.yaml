@@ -1,7 +1,8 @@
 blueprint:
   name: s42 - Intelligente Rollladensteuerung V2 (ein Rollladen pro Automation)
   description: >
-    Steuert einen einzelnen Rollladen anhand "seines" Fensters: morgendliches Öffnen,
+    Steuert einen einzelnen Rollladen anhand "seines" Fensters: morgendliches Öffnen
+    (optional mit separater Uhrzeit am Wochenende),
     Reaktion auf gekippte/geöffnete Fenster inkl. Rückfahr-Logik, Nachtmodus, Sturmschutz,
     automatische Beschattung anhand des Sonnenstands (Sonnenschutz, optional mit Filter
     nach Wetterlage), Sonnenheizen (das Gegenteil: öffnet in der Heizperiode
@@ -53,7 +54,7 @@ blueprint:
                 - domain: sensor
     morning_section:
       name: Morgens öffnen
-      description: Einstellungen für das automatische Öffnen am Morgen.
+      description: Einstellungen für das automatische Öffnen am Morgen, optional mit separater Uhrzeit am Wochenende.
       icon: mdi:weather-sunset-up
       collapsed: true
       input:
@@ -71,6 +72,19 @@ blueprint:
             ein Datum+Uhrzeit-Helfer feuert nur ein einziges Mal an genau diesem
             Datum und danach nie wieder. In allen Blueprint-Instanzen denselben
             Helfer auswählen.
+          default: []
+          selector:
+            entity:
+              domain: input_datetime
+        morning_time_weekend:
+          name: Uhrzeit für morgendliches Hochfahren am Wochenende (optional)
+          description: >
+            Optionaler input_datetime-Helfer mit der Uhrzeit für Samstag und Sonntag.
+            Wenn gesetzt, ersetzt diese Uhrzeit am Wochenende die normale Morgen-Uhrzeit.
+            Wenn leer, gilt die normale Morgen-Uhrzeit an allen Tagen.
+            Wichtig: Auch hier einen Helfer verwenden, der NUR eine Uhrzeit enthält
+            (ohne Datum). In allen Blueprint-Instanzen kann derselbe Helfer ausgewählt
+            werden.
           default: []
           selector:
             entity:
@@ -795,6 +809,7 @@ variables:
   force_close: !input force_close
   treat_open_as_tilted: !input treat_open_as_tilted
   morning_position: !input morning_position
+  morning_time_weekend: !input morning_time_weekend
   night_mode_boolean: !input night_mode_boolean
   night_ventilation_position: !input night_ventilation_position
   storm_enabled: !input storm_enabled
@@ -867,6 +882,13 @@ triggers:
   - trigger: time
     at: !input morning_time
     id: morning_open
+    enabled: !input morning_enabled
+  - trigger: time
+    at: !input morning_time_weekend
+    weekday:
+      - sat
+      - sun
+    id: morning_open_weekend
     enabled: !input morning_enabled
   - trigger: state
     entity_id: !input window_sensor
@@ -962,7 +984,16 @@ actions:
       # --- MORGENS ÖFFNEN ---
       - conditions:
           - condition: trigger
-            id: morning_open
+            id:
+              - morning_open
+              - morning_open_weekend
+          # Ist eine separate Wochenend-Uhrzeit konfiguriert, wird der normale
+          # Morgen-Trigger samstags/sonntags ignoriert. Ohne Wochenend-Helfer
+          # bleibt das bisherige Verhalten erhalten: morning_time gilt jeden Tag.
+          - condition: template
+            value_template: >-
+              {{ trigger.id == 'morning_open_weekend'
+                 or not (now().weekday() in [5, 6] and morning_time_weekend is string) }}
         sequence:
           # Sturm hat immer Vorrang: bei Starkwind wird morgens nicht bewegt
           # (im Panzer-Modus wäre das Öffnen direkt kontraproduktiv)
