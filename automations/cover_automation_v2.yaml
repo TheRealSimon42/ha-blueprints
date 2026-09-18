@@ -4,7 +4,7 @@ blueprint:
     Steuert einen einzelnen Rollladen anhand "seines" Fensters: morgendliches Öffnen,
     Reaktion auf gekippte/geöffnete Fenster inkl. Rückfahr-Logik, Nachtmodus, Sturmschutz,
     automatische Beschattung anhand des Sonnenstands (Sonnenschutz, optional mit Filter
-    nach Wetterlage), Sonnenheizen (das Gegenteil: öffnet in der Heizperiode
+    nach Wetterlage und/oder Helligkeit), Sonnenheizen (das Gegenteil: öffnet in der Heizperiode
     heruntergelassene/vergessene Rollläden bei Sonne und Kälte) sowie ein Moskito-Modus,
     der beim Öffnen des Fensters nach Sonnenuntergang die Lichter im Raum ausschaltet.
 
@@ -250,16 +250,47 @@ blueprint:
           selector:
             entity:
               domain: input_boolean
+        shading_illuminance_sensor:
+          name: Helligkeitssensor (optional)
+          description: >
+            Ein Sensor mit Beleuchtungsstärke (Lux). Ist nur dieser Sensor gesetzt, wird nach Helligkeit beschattet. Ist zusätzlich eine Wetterlage gewählt, muss nur eine Bedingung zutreffen (ODER-Verknüpfung).
+          default: []
+          selector:
+            entity:
+              domain: sensor
+              device_class: illuminance
+        shading_illuminance_threshold:
+          name: Helligkeits-Schwelle
+          description: >
+            Ab dieser Beleuchtungsstärke (Lux) wird beschattet. Nur relevant, wenn
+            ein Helligkeitssensor ausgewählt ist. Richtwerte: pralle Sonne
+            30.000–100.000 lx, bedeckter Himmel tagsüber 1.000–100.000 lx.
+          default: 10000
+          selector:
+            number:
+              min: 0
+              max: 100000
+              step: 500
+              mode: box
+              unit_of_measurement: lx
+        shading_illuminance_hysteresis:
+          name: Helligkeits-Hysterese
+          description: >
+            Die Beschattung endet erst, wenn die Helligkeit um diesen Wert unter die
+            Schwelle gefallen ist (verhindert ständiges Auf und Ab). Nur relevant,
+            wenn ein Helligkeitssensor ausgewählt ist.
+          default: 2000
+          selector:
+            number:
+              min: 0
+              max: 20000
+              step: 500
+              mode: box
+              unit_of_measurement: lx
         shading_weather_states:
           name: Wetterlagen für Beschattung (optional)
           description: >
-            Beschattet wird nur, wenn die Wetter-Entität (siehe Sturmschutz weiter
-            unten) eine dieser Wetterlagen meldet — praktisch, um z.B. bei "bewölkt"
-            trotz rechnerisch passendem Sonnenstand nicht unnötig zu beschatten.
-            Leer lassen, um die Wetterlage zu ignorieren (Standardverhalten wie
-            bisher — nur Sonnenstand und Temperatur zählen). Ohne gesetzte
-            Wetter-Entität wird dieser Filter ignoriert, auch wenn hier Werte
-            ausgewählt sind.
+            Nur relevant, wenn Werte ausgewählt sind. Ist nur die Wetterlage gesetzt, filtert diese die Beschattung. Ist zusätzlich ein Helligkeitssensor gewählt, muss nur eine Bedingung zutreffen (ODER-Verknüpfung). Leer lassen, um die Wetterlage zu ignorieren.
           default: []
           selector:
             select:
@@ -822,6 +853,9 @@ variables:
   shading_override_threshold: !input shading_override_threshold
   force_shading: !input force_shading
   shading_weather_states: !input shading_weather_states
+  shading_illuminance_sensor: !input shading_illuminance_sensor
+  shading_illuminance_threshold: !input shading_illuminance_threshold
+  shading_illuminance_hysteresis: !input shading_illuminance_hysteresis
   solar_heating_status_helper: !input solar_heating_status_helper
   solar_heating_temp_threshold: !input solar_heating_temp_threshold
   solar_heating_temp_hysteresis: !input solar_heating_temp_hysteresis
@@ -968,9 +1002,9 @@ actions:
           # (im Panzer-Modus wäre das Öffnen direkt kontraproduktiv)
           - variables:
               wind_now: >-
-                {% if storm_wind_sensor is string %}
+                {% if storm_wind_sensor is string and storm_wind_sensor != '' %}
                   {{ states(storm_wind_sensor) | float(0) }}
-                {% elif weather_entity is string %}
+                {% elif weather_entity is string and weather_entity != '' %}
                   {{ state_attr(weather_entity, 'wind_speed') | float(0) }}
                 {% else %}
                   0
@@ -996,7 +1030,7 @@ actions:
           # Morgens-Öffnen ist für die Beschattung eine Fremdbewegung: Status freigeben,
           # damit ein heißer Sommermorgen direkt wieder frisch beschattet werden kann
           - if:
-              - "{{ shading_status_helper is string and is_state(shading_status_helper, 'on') }}"
+              - "{{ shading_status_helper is string and shading_status_helper != '' and is_state(shading_status_helper, 'on') }}"
             then:
               - action: input_boolean.turn_off
                 target:
@@ -1010,7 +1044,7 @@ actions:
           # Beschattungs-Status zurücksetzen: Die Nacht beendet die Beschattung,
           # sonst springt der Rollladen morgens beim ersten Tick auf die End-Position
           - if:
-              - "{{ shading_status_helper is string and is_state(shading_status_helper, 'on') }}"
+              - "{{ shading_status_helper is string and shading_status_helper != '' and is_state(shading_status_helper, 'on') }}"
             then:
               - action: input_boolean.turn_off
                 target:
@@ -1018,7 +1052,7 @@ actions:
           # Sonnenheizen-Status ebenfalls zurücksetzen, damit die nächste Aktivierung
           # (nächster sonniger kalter Morgen) nicht durch einen Alt-Zustand blockiert wird
           - if:
-              - "{{ solar_heating_status_helper is string and is_state(solar_heating_status_helper, 'on') }}"
+              - "{{ solar_heating_status_helper is string and solar_heating_status_helper != '' and is_state(solar_heating_status_helper, 'on') }}"
             then:
               - action: input_boolean.turn_off
                 target:
@@ -1055,7 +1089,7 @@ actions:
           # manueller Eingriff gewertet werden — sobald der Wind nachlässt, soll
           # der nächste Tick wieder frisch beschatten können
           - if:
-              - "{{ shading_status_helper is string and is_state(shading_status_helper, 'on') }}"
+              - "{{ shading_status_helper is string and shading_status_helper != '' and is_state(shading_status_helper, 'on') }}"
             then:
               - action: input_boolean.turn_off
                 target:
@@ -1092,7 +1126,7 @@ actions:
           # weitergewandert — ohne Freigabe würde der erste Tick die Abweichung
           # als manuellen Eingriff werten und bis Tagesende nicht mehr beschatten
           - if:
-              - "{{ shading_status_helper is string and is_state(shading_status_helper, 'on') }}"
+              - "{{ shading_status_helper is string and shading_status_helper != '' and is_state(shading_status_helper, 'on') }}"
             then:
               - action: input_boolean.turn_off
                 target:
@@ -1101,15 +1135,15 @@ actions:
           # während der Pause verpasste Zustand. Sturm hat weiterhin Vorrang.
           - variables:
               wind_now: >-
-                {% if storm_wind_sensor is string %}
+                {% if storm_wind_sensor is string and storm_wind_sensor != '' %}
                   {{ states(storm_wind_sensor) | float(0) }}
-                {% elif weather_entity is string %}
+                {% elif weather_entity is string and weather_entity != '' %}
                   {{ state_attr(weather_entity, 'wind_speed') | float(0) }}
                 {% else %}
                   0
                 {% endif %}
           - if:
-              - "{{ night_mode_boolean is string and is_state(night_mode_boolean, 'on') }}"
+              - "{{ night_mode_boolean is string and night_mode_boolean != '' and is_state(night_mode_boolean, 'on') }}"
               - "{{ not storm_enabled or (wind_now | float(0)) < wind_speed_threshold }}"
             then:
               - choose:
@@ -1143,7 +1177,7 @@ actions:
           # Pflichtfelder — ohne diesen Hinweis bliebe ein aktivierter Sonnenschutz
           # ohne Status-Helfer einfach still wirkungslos
           - if:
-              - "{{ shading_status_helper is not string }}"
+              - "{{ shading_status_helper is not string or shading_status_helper == '' }}"
             then:
               - action: persistent_notification.create
                 data:
@@ -1165,17 +1199,17 @@ actions:
                    and az_diff >= (0 - shading_fov_left)
                    and az_diff <= shading_fov_right }}
               outdoor_temp: >-
-                {% if shading_temp_sensor is string %}
+                {% if shading_temp_sensor is string and shading_temp_sensor != '' %}
                   {{ states(shading_temp_sensor) | float(-99) }}
-                {% elif weather_entity is string %}
+                {% elif weather_entity is string and weather_entity != '' %}
                   {{ state_attr(weather_entity, 'temperature') | float(-99) }}
                 {% else %}
                   -99
                 {% endif %}
               wind_now: >-
-                {% if storm_wind_sensor is string %}
+                {% if storm_wind_sensor is string and storm_wind_sensor != '' %}
                   {{ states(storm_wind_sensor) | float(0) }}
-                {% elif weather_entity is string %}
+                {% elif weather_entity is string and weather_entity != '' %}
                   {{ state_attr(weather_entity, 'wind_speed') | float(0) }}
                 {% else %}
                   0
@@ -1185,9 +1219,9 @@ actions:
               # (Integrations-Reload, Funk-Aussetzer) darf eine laufende Beschattung
               # nicht beenden — unavailable heißt "Zustand halten", nicht "abbrechen"
               temp_available: >-
-                {% if shading_temp_sensor is string %}
+                {% if shading_temp_sensor is string and shading_temp_sensor != '' %}
                   {{ has_value(shading_temp_sensor) }}
-                {% elif weather_entity is string %}
+                {% elif weather_entity is string and weather_entity != '' %}
                   {{ has_value(weather_entity) and state_attr(weather_entity, 'temperature') is not none }}
                 {% else %}
                   false
@@ -1196,11 +1230,40 @@ actions:
               # rein auf Sonnenstand/Temperatur basierend); ohne gesetzte Wetter-Entität
               # oder bei unavailable/unknown ebenfalls erlaubt (Filter kann nicht
               # ausgewertet werden und soll die Beschattung dann nicht lahmlegen)
+              # Sensor-Konfiguration & Verfügbarkeit
+              has_lux_config: "{{ shading_illuminance_sensor is string and shading_illuminance_sensor != '' }}"
+              lux_available: "{{ has_lux_config and has_value(shading_illuminance_sensor) }}"
+              lux_now: "{{ states(shading_illuminance_sensor) | float(0) if lux_available else 0 }}"
+
+              has_weather_config: "{{ shading_weather_states | length > 0 and weather_entity is string and weather_entity != '' }}"
+              weather_available: "{{ has_weather_config and has_value(weather_entity) }}"
+              weather_now: "{{ states(weather_entity) if weather_available else '' }}"
+
+              # Lux-Prüfung: Falls konfiguriert, muss Lux verfügbar sein UND >= Schwelle
+              lux_ok: >-
+                {% if has_lux_config %}
+                  {{ lux_available and lux_now >= shading_illuminance_threshold }}
+                {% else %}
+                  true
+                {% endif %}
+
+              weather_cond_ok: >-
+                {% if has_weather_config %}
+                  {{ weather_available and weather_now in shading_weather_states }}
+                {% else %}
+                  true
+                {% endif %}
+
               weather_ok: >-
-                {{ shading_weather_states | length == 0
-                   or not (weather_entity is string)
-                   or states(weather_entity) in ['unknown', 'unavailable']
-                   or states(weather_entity) in shading_weather_states }}
+                {% if has_lux_config and has_weather_config %}
+                  {{ lux_ok or weather_cond_ok }}
+                {% elif has_lux_config %}
+                  {{ lux_ok }}
+                {% elif has_weather_config %}
+                  {{ weather_cond_ok }}
+                {% else %}
+                  true
+                {% endif %}
               # Beenden nur bei STABIL schlechter Wetterlage (>= 10 Minuten unverändert):
               # Wetterzustände flattern gern (bewölkt <-> teilweise bewölkt) — ohne diese
               # Trägheit würde der Rollladen im 5-Minuten-Takt voll auf- und zufahren.
@@ -1208,18 +1271,23 @@ actions:
               # Lagen (z.B. rainy <-> pouring), bleibt last_changed jung und dieses
               # Ende greift nicht — dann beenden Sonnenstand/Temperatur die Beschattung
               weather_bad_stable: >-
-                {{ shading_weather_states | length > 0
-                   and weather_entity is string
-                   and states(weather_entity) not in ['unknown', 'unavailable']
-                   and states(weather_entity) not in shading_weather_states
-                   and (as_timestamp(now()) - as_timestamp(states[weather_entity].last_changed)) > 600 }}
+                {{ has_weather_config
+                   and weather_available
+                   and weather_now not in shading_weather_states
+                   and (as_timestamp(now()) - as_timestamp(states[weather_entity].last_changed, 0)) > 600 }}
+
+              # Beenden bei zu geringer Helligkeit (unter Schwelle minus Hysterese)
+              illuminance_bad: >-
+                {{ has_lux_config
+                   and lux_available
+                   and lux_now <= (shading_illuminance_threshold - shading_illuminance_hysteresis) }}
           - choose:
               # Beschattung starten / der Sonne nachführen
               - conditions:
                   - "{{ sun_in_window and outdoor_temp >= shading_temp_threshold }}"
                   - "{{ storm_ok }}"
                   - "{{ weather_ok }}"
-                  - "{{ not (night_mode_boolean is string and is_state(night_mode_boolean, 'on')) }}"
+                  - "{{ not (night_mode_boolean is string and night_mode_boolean != '' and is_state(night_mode_boolean, 'on')) }}"
                   - "{{ force_shading or treat_open_as_tilted or states(window_sensor) not in ['on', 'open'] }}"
                 sequence:
                   - variables:
@@ -1279,8 +1347,9 @@ actions:
                   - >-
                     {{ (not sun_in_window)
                        or (temp_available and outdoor_temp <= (shading_temp_threshold - shading_temp_hysteresis))
-                       or weather_bad_stable }}
-                  - "{{ not (night_mode_boolean is string and is_state(night_mode_boolean, 'on')) }}"
+                       or weather_bad_stable
+                       or illuminance_bad }}
+                  - "{{ not (night_mode_boolean is string and night_mode_boolean != '' and is_state(night_mode_boolean, 'on')) }}"
                 sequence:
                   - action: input_boolean.turn_off
                     target:
@@ -1297,7 +1366,7 @@ actions:
             id: solar_heating_tick
         sequence:
           - if:
-              - "{{ solar_heating_status_helper is not string }}"
+              - "{{ solar_heating_status_helper is not string or solar_heating_status_helper == '' }}"
             then:
               - action: persistent_notification.create
                 data:
@@ -1322,9 +1391,9 @@ actions:
               # Temperaturquelle, soll die "<= Schwelle"-Prüfung sicher scheitern,
               # damit Sonnenheizen ohne Datenquelle einfach aus bleibt statt zu spinnen
               outdoor_temp: >-
-                {% if shading_temp_sensor is string %}
+                {% if shading_temp_sensor is string and shading_temp_sensor != '' %}
                   {{ states(shading_temp_sensor) | float(99) }}
-                {% elif weather_entity is string %}
+                {% elif weather_entity is string and weather_entity != '' %}
                   {{ state_attr(weather_entity, 'temperature') | float(99) }}
                 {% else %}
                   99
@@ -1332,18 +1401,18 @@ actions:
               # Ein unavailable-Blip der Temperaturquelle darf die Einmal-Semantik
               # nicht brechen (sonst: Helfer-Reset -> erneutes Aufdrängen nach Blip)
               temp_available: >-
-                {% if shading_temp_sensor is string %}
+                {% if shading_temp_sensor is string and shading_temp_sensor != '' %}
                   {{ has_value(shading_temp_sensor) }}
-                {% elif weather_entity is string %}
+                {% elif weather_entity is string and weather_entity != '' %}
                   {{ has_value(weather_entity) and state_attr(weather_entity, 'temperature') is not none }}
                 {% else %}
                   false
                 {% endif %}
-              night_mode_on: "{{ night_mode_boolean is string and is_state(night_mode_boolean, 'on') }}"
+              night_mode_on: "{{ night_mode_boolean is string and night_mode_boolean != '' and is_state(night_mode_boolean, 'on') }}"
               wind_now: >-
-                {% if storm_wind_sensor is string %}
+                {% if storm_wind_sensor is string and storm_wind_sensor != '' %}
                   {{ states(storm_wind_sensor) | float(0) }}
-                {% elif weather_entity is string %}
+                {% elif weather_entity is string and weather_entity != '' %}
                   {{ state_attr(weather_entity, 'wind_speed') | float(0) }}
                 {% else %}
                   0
@@ -1421,7 +1490,7 @@ actions:
             id:
               - window_open_long
               - window_tilted_long
-          - "{{ not (sleep_mode_boolean is string and is_state(sleep_mode_boolean, 'on')) }}"
+          - "{{ not (sleep_mode_boolean is string and sleep_mode_boolean != '' and is_state(sleep_mode_boolean, 'on')) }}"
           - "{{ device_name_map | length > 0 }}"
         sequence:
           - variables:
@@ -1496,7 +1565,7 @@ actions:
             id: window_change
         sequence:
           - variables:
-              night_mode_on: "{{ night_mode_boolean is string and is_state(night_mode_boolean, 'on') }}"
+              night_mode_on: "{{ night_mode_boolean is string and night_mode_boolean != '' and is_state(night_mode_boolean, 'on') }}"
               reclose_scene: "scene.reclose_{{ cover_entity | slugify }}"
           # Ausgangsposition nur beim Übergang aus "geschlossen" sichern — sonst
           # überschreibt Kippen→Öffnen den Snapshot mit der Kipp-Position. Nach
@@ -1530,7 +1599,7 @@ actions:
                   - "{{ not treat_open_as_tilted }}"
                   - "{{ not night_mode_on }}"
                   # Bei aktiver erzwungener Beschattung bleibt der Rollladen unten
-                  - "{{ not (force_shading and shading_status_helper is string and is_state(shading_status_helper, 'on')) }}"
+                  - "{{ not (force_shading and shading_status_helper is string and shading_status_helper != '' and is_state(shading_status_helper, 'on')) }}"
                 sequence:
                   - action: cover.open_cover
                     target:
@@ -1539,7 +1608,7 @@ actions:
                   # manueller Eingriff — nach dem Schließen (oder Timeout) darf der
                   # nächste Tick wieder beschatten, statt bis Tagesende zu pausieren
                   - if:
-                      - "{{ shading_status_helper is string and is_state(shading_status_helper, 'on') }}"
+                      - "{{ shading_status_helper is string and shading_status_helper != '' and is_state(shading_status_helper, 'on') }}"
                     then:
                       - action: input_boolean.turn_off
                         target:
@@ -1570,7 +1639,7 @@ actions:
           # Zustand NACH dem Warten neu bewerten — währenddessen können Nachtmodus
           # oder Sturm aktiv geworden sein, dann darf der Snapshot nicht zurückgeholt werden
           - variables:
-              night_mode_on_now: "{{ night_mode_boolean is string and is_state(night_mode_boolean, 'on') }}"
+              night_mode_on_now: "{{ night_mode_boolean is string and night_mode_boolean != '' and is_state(night_mode_boolean, 'on') }}"
               pause_now: >-
                 {% set helpers = [pause_boolean] if pause_boolean is string else pause_boolean %}
                 {% set pausing = 'on' if pause_mode == 'on_pauses' else 'off' %}
@@ -1579,9 +1648,9 @@ actions:
                    and found | length > 0
                    and found | rejectattr('state', 'eq', pausing) | list | length == 0 }}
               wind_now: >-
-                {% if storm_wind_sensor is string %}
+                {% if storm_wind_sensor is string and storm_wind_sensor != '' %}
                   {{ states(storm_wind_sensor) | float(0) }}
-                {% elif weather_entity is string %}
+                {% elif weather_entity is string and weather_entity != '' %}
                   {{ state_attr(weather_entity, 'wind_speed') | float(0) }}
                 {% else %}
                   0
@@ -1626,7 +1695,7 @@ actions:
                       # damit der nächste Tick bei Bedarf frisch beschattet, statt die
                       # Abweichung als manuellen Eingriff bis Tagesende zu sperren
                       - if:
-                          - "{{ shading_status_helper is string and is_state(shading_status_helper, 'on') }}"
+                          - "{{ shading_status_helper is string and shading_status_helper != '' and is_state(shading_status_helper, 'on') }}"
                         then:
                           - action: input_boolean.turn_off
                             target:
