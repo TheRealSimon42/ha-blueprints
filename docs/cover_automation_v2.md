@@ -47,7 +47,7 @@ Fenster, bis der Helfer gesetzt oder das Feature deaktiviert ist.
 | Morgens öffnen      | Fährt zur eingestellten Uhrzeit auf die Zielposition (nur wenn geschlossener)                                                    | `input_datetime`-Helfer (nur Uhrzeit)      |
 | Fenster-Interaktion | Kippen → Lüftungsposition, Öffnen → ganz auf (optional: wie Kippen behandeln); nach dem Schließen zurück in die Ausgangsposition | — (immer aktiv)                            |
 | Nachtmodus          | Schließt beim Einschalten des Helfers; offene/gekippte Fenster bekommen eine Lüftungsposition                                    | `input_boolean`-Helfer                     |
-| Sturmschutz         | Fährt bei Starkwind hoch (oder im Panzer-Modus herunter)                                                                         | Wetter-Entität oder Wind-Sensor            |
+| Sturmschutz         | Fährt bei Starkwind hoch (oder im Panzer-Modus herunter); optional bleiben komplett geschlossene Rollläden zu                    | Wetter-Entität oder Wind-Sensor            |
 | Sonnenschutz        | Beschattet anhand des Sonnenstands so, dass die Sonne höchstens X m in den Raum fällt; öffnet nach Ende wieder                   | Status-Helfer, Geometrie, Temperaturquelle |
 | Sonnenheizen        | Öffnet im Winter vergessene Rollos, wenn Sonne ins Fenster scheint und es kalt ist                                               | eigener Status-Helfer, Geometrie           |
 | Moskito-Modus       | Schaltet beim Fensteröffnen nach Sonnenuntergang die Lichter im Raum aus (mit Ausnahmen)                                         | — (Bereich kommt vom Fenstersensor)        |
@@ -154,6 +154,15 @@ korrekt?), und ist das Fenster nicht komplett offen?
 sich die Automation die Ausgangsposition und stellt sie nach dem Schließen wieder her
 (innerhalb des einstellbaren Zeitfensters). Kam inzwischen Nachtmodus oder Sturm,
 wird stattdessen deren Zustand hergestellt.
+
+**Hoch oder runter bei Sturm — was ist richtig?** Standardmäßig fährt der
+Rollladen bei Sturm hoch, damit ein halb geöffneter Panzer nicht in den
+Führungsschienen flattert. Mit dem Panzer-Modus fährt er stattdessen herunter. Die
+Option "Geschlossene Rollläden bei Sturm zu lassen" ist der Mittelweg: Nur teilweise
+geöffnete Rollläden fahren hoch, ein bereits komplett geschlossener (0 %) bleibt zu.
+Das passt zu stabilen Panzern, die nachts als Einbruchschutz dienen — beginnt der
+Sturm nachts, bleibt alles unten; tagsüber fahren offene Rollläden trotzdem in
+Sicherheit. Solange der Sturm anhält, blockiert er außerdem das morgendliche Öffnen.
 
 **Kann ich denselben Status-Helfer für mehrere Fenster verwenden?** Nein — er
 speichert den Zustand genau eines Fensters. Ein geteilter Helfer führt zu falschem

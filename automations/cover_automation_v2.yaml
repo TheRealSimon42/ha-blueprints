@@ -680,6 +680,18 @@ blueprint:
           default: false
           selector:
             boolean: {}
+        storm_keep_closed:
+          name: Geschlossene Rollläden bei Sturm zu lassen
+          description: >
+            Nur ohne Panzer-Modus wirksam. Ist der Rollladen bei Sturmbeginn bereits
+            komplett geschlossen (Position 0 %), bleibt er zu, statt hochzufahren —
+            nur teilweise geöffnete Rollläden werden in Sicherheit gebracht. Ein
+            vollständig geschlossener Panzer sitzt fest in den Führungsschienen und
+            flattert nicht; so bleibt z.B. nachts oder im Urlaub der Einbruchschutz
+            erhalten, während tagsüber offene Rollläden trotzdem hochfahren.
+          default: false
+          selector:
+            boolean: {}
         force_storm_action:
           name: Aktion bei Sturm erzwingen
           description: >
@@ -802,6 +814,7 @@ variables:
   storm_wind_sensor: !input storm_wind_sensor
   wind_speed_threshold: !input wind_speed_threshold
   panzer_mode: !input panzer_mode
+  storm_keep_closed: !input storm_keep_closed
   force_storm_action: !input force_storm_action
   shading_status_helper: !input shading_status_helper
   window_azimuth: !input window_azimuth
@@ -1060,16 +1073,27 @@ actions:
               - action: input_boolean.turn_off
                 target:
                   entity_id: "{{ shading_status_helper }}"
-          - if:
-              - "{{ not panzer_mode }}"
-            then:
-              - action: cover.open_cover
-                target:
-                  entity_id: !input cover
-            else:
-              - action: cover.close_cover
-                target:
-                  entity_id: !input cover
+          # Komplett geschlossen = HA-State "closed" oder Position 0 % (manche
+          # Aktoren melden "closed" schon bei 1–2 % Kalibrierungs-Rest)
+          - variables:
+              cover_fully_closed: >-
+                {{ is_state(cover_entity, 'closed')
+                   or state_attr(cover_entity, 'current_position') | int(-1) == 0 }}
+          - choose:
+              - conditions:
+                  - "{{ panzer_mode }}"
+                sequence:
+                  - action: cover.close_cover
+                    target:
+                      entity_id: !input cover
+              # Optional: bereits komplett geschlossene Rollläden nicht öffnen —
+              # nur teilweise geöffnete Panzer sind bei Sturm gefährdet
+              - conditions:
+                  - "{{ not (storm_keep_closed and cover_fully_closed) }}"
+                sequence:
+                  - action: cover.open_cover
+                    target:
+                      entity_id: !input cover
 
       # --- PAUSE BEENDET: ZUSTAND NACHHOLEN ---
       - conditions:
