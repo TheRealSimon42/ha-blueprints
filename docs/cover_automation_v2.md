@@ -46,7 +46,7 @@ Fenster, bis der Helfer gesetzt oder das Feature deaktiviert ist.
 
 | Feature             | Was es tut                                                                                                                       | Voraussetzung                                      |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
-| Morgens öffnen      | Fährt zur eingestellten Uhrzeit auf die Zielposition (nur wenn geschlossener)                                                    | `input_datetime`-Helfer (nur Uhrzeit)              |
+| Morgens öffnen      | Fährt zur eingestellten Uhrzeit und/oder beim Ende des Nachtmodus auf die Zielposition (nur wenn geschlossener)                  | `input_datetime`-Helfer (nur Uhrzeit)              |
 | Fenster-Interaktion | Kippen → Lüftungsposition, Öffnen → ganz auf (optional: wie Kippen behandeln); nach dem Schließen zurück in die Ausgangsposition | — (immer aktiv)                                    |
 | Nachtmodus          | Schließt beim Einschalten des Helfers; offene/gekippte Fenster bekommen eine Lüftungsposition                                    | `input_boolean`- oder `schedule`-Helfer            |
 | Sturmschutz         | Fährt bei Starkwind hoch (oder im Panzer-Modus herunter)                                                                         | Wetter-Entität oder Wind-Sensor                    |
@@ -182,6 +182,15 @@ Sa–So 22:00–08:00. Das Blueprint liest den Helfer nur; wer zusätzlich von H
 eingreifen will (Guten-Nacht-Szene, Gäste), nimmt weiterhin einen `input_boolean` und
 schaltet ihn mit einer kleinen Automation aus dem Zeitplan. Pausier- und
 Schlafmodus-Helfer akzeptieren ebenfalls Zeitpläne.
+
+**Kann der Zeitplan auch das morgendliche Öffnen übernehmen?** Ja — im Abschnitt
+"Morgens öffnen" den Schalter "Beim Ende des Nachtmodus öffnen" aktivieren. Dann fährt
+der Rollladen hoch, sobald der Nachtmodus-Helfer ausgeht, mit derselben Logik wie zur
+Uhrzeit (Sturm hat Vorrang, es wird nur gefahren, wenn der Rollladen geschlossener als
+die Zielposition ist). Der Uhrzeit-Helfer kann dann leer bleiben; ein Zeitplan mit
+Mo–Fr 21:30–06:30 und Sa–So 22:00–08:00 ergibt so den kompletten Tagesrhythmus.
+⚠️ Mit einem `input_boolean` als Nachtmodus öffnet jedes Ausschalten den Rollladen —
+auch ein manuelles um 23 Uhr; die Option passt deshalb vor allem zum Zeitplan.
 
 **Kann ich die Automation zeitweise anhalten?** Ja — im Abschnitt "Pausieren" einen
 einen oder mehrere `input_boolean`-Helfer auswählen. Die Logik ist wählbar: "AN

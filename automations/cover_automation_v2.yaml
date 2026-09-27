@@ -66,7 +66,8 @@ blueprint:
           name: Uhrzeit für morgendliches Hochfahren
           description: >
             Ein input_datetime-Helfer mit der Uhrzeit für das Hochfahren
-            (erforderlich, wenn "Morgens öffnen" aktiviert ist).
+            (erforderlich, wenn "Morgens öffnen" aktiviert ist und nicht
+            stattdessen "Beim Ende des Nachtmodus öffnen" genutzt wird).
             Wichtig: einen Helfer, der NUR eine Uhrzeit enthält (ohne Datum) —
             ein Datum+Uhrzeit-Helfer feuert nur ein einziges Mal an genau diesem
             Datum und danach nie wieder. In allen Blueprint-Instanzen denselben
@@ -75,6 +76,18 @@ blueprint:
           selector:
             entity:
               domain: input_datetime
+        morning_on_night_end:
+          name: Beim Ende des Nachtmodus öffnen
+          description: >
+            Fährt zusätzlich (oder statt der Uhrzeit) hoch, sobald der
+            Nachtmodus-Helfer ausgeschaltet wird. Zusammen mit einem Zeitplan-Helfer
+            als Nachtmodus ergibt das einen kompletten Tagesrhythmus mit eigenen
+            Zeiten je Wochentag — die Uhrzeit oben kann dann leer bleiben.
+            ⚠️ Mit einem input_boolean als Nachtmodus öffnet JEDES Ausschalten den
+            Rollladen, auch ein manuelles um 23 Uhr.
+          default: false
+          selector:
+            boolean: {}
         morning_position:
           name: Zielposition für morgens
           description: >
@@ -806,6 +819,7 @@ variables:
   reclose_timeout: !input reclose_timeout
   force_close: !input force_close
   treat_open_as_tilted: !input treat_open_as_tilted
+  morning_enabled: !input morning_enabled
   morning_position: !input morning_position
   night_mode_boolean: !input night_mode_boolean
   night_ventilation_position: !input night_ventilation_position
@@ -880,6 +894,14 @@ triggers:
     at: !input morning_time
     id: morning_open
     enabled: !input morning_enabled
+  # Gleiche ID wie der Uhrzeit-Trigger: Nachtmodus-Ende durchläuft dieselbe
+  # Morgens-Logik (Sturm-Vorrang, Zielposition, nur wenn geschlossener)
+  - trigger: state
+    entity_id: !input night_mode_boolean
+    from: "on"
+    to: "off"
+    id: morning_open
+    enabled: !input morning_on_night_end
   - trigger: state
     entity_id: !input window_sensor
     to:
@@ -975,6 +997,9 @@ actions:
       - conditions:
           - condition: trigger
             id: morning_open
+          # "Morgens öffnen aktivieren" gilt auch für das Nachtmodus-Ende (der
+          # Uhrzeit-Trigger ist bereits per enabled abgeschaltet)
+          - "{{ morning_enabled or trigger.platform == 'time' }}"
         sequence:
           # Sturm hat immer Vorrang: bei Starkwind wird morgens nicht bewegt
           # (im Panzer-Modus wäre das Öffnen direkt kontraproduktiv)
