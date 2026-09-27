@@ -604,13 +604,18 @@ blueprint:
         night_mode_boolean:
           name: Nachtmodus-Helfer (optional)
           description: >
-            Ein input_boolean-Helfer. Wird er eingeschaltet, fährt der Rollladen für
-            die Nacht herunter. Leer lassen, wenn kein Nachtmodus gewünscht ist.
-            In allen Blueprint-Instanzen denselben Helfer auswählen.
+            Ein input_boolean- oder Zeitplan-Helfer (schedule). Wird er
+            eingeschaltet, fährt der Rollladen für die Nacht herunter. Mit einem
+            Zeitplan lassen sich Nachtzeiten je Wochentag direkt in Home Assistant
+            pflegen; ein input_boolean eignet sich, wenn der Nachtmodus von Hand
+            oder aus einer Szene geschaltet wird. Leer lassen, wenn kein Nachtmodus
+            gewünscht ist. In allen Blueprint-Instanzen denselben Helfer auswählen.
           default: []
           selector:
             entity:
-              domain: input_boolean
+              domain:
+                - input_boolean
+                - schedule
         night_ventilation_position:
           name: Nachtposition bei offenem Fenster
           description: >
@@ -700,7 +705,8 @@ blueprint:
         pause_boolean:
           name: Pausier-Helfer (optional)
           description: >
-            Ein oder mehrere input_boolean-Helfer, die die Automatik anhalten —
+            Ein oder mehrere input_boolean- oder Zeitplan-Helfer (schedule), die die
+            Automatik anhalten —
             keine Fahrten, keine Lichter, keine Meldungen. Ob dafür der ein- oder
             ausgeschaltete Zustand zählt, legst du im nächsten Feld fest; bei
             mehreren Helfern pausiert die Automatik nur, wenn ALLE gleichzeitig
@@ -714,7 +720,9 @@ blueprint:
           default: []
           selector:
             entity:
-              domain: input_boolean
+              domain:
+                - input_boolean
+                - schedule
               multiple: true
         pause_mode:
           name: Logik des Pausier-Helfers
@@ -778,11 +786,15 @@ blueprint:
             boolean: {}
         sleep_mode_boolean:
           name: Schlafmodus-Helfer (optional)
-          description: Wenn dieser input_boolean 'on' ist, werden keine Benachrichtigungen gesendet.
+          description: >
+            Ein input_boolean- oder Zeitplan-Helfer (schedule). Solange er 'on'
+            ist, werden keine Benachrichtigungen gesendet.
           default: []
           selector:
             entity:
-              domain: input_boolean
+              domain:
+                - input_boolean
+                - schedule
 
 mode: parallel
 max: 20
