@@ -15,6 +15,8 @@ ist der Rollladen; der Fenstersensor ist optional (festverglaste Fenster!).
 - Morgens öffnen: zur Uhrzeit (input_datetime-Helfer), zum Sonnenaufgang mit
   Verschiebung ("später von beiden"), oder erst bei Bewegung im Raum
 - Fenster-Interaktion (offen/gekippt → Position, mit Rückfahr-Logik)
+- Regenschutz beim Lüften (Regensensor; fährt bei gekipptem Fenster auf eine Schutzposition
+  und nach dem Regen zurück)
 - Nachtmodus inkl. Lüftungsposition bei offenem Fenster und optionaler
   Nacht-Zielposition; Helfer darf input_boolean, Schedule oder Binärsensor sein
 - Sturmschutz (Wetter-Entität oder Wind-Sensor, optionaler Panzer-Modus) — hat immer Vorrang

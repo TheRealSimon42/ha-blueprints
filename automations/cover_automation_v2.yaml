@@ -2,7 +2,7 @@ blueprint:
   name: s42 - Intelligente Rollladensteuerung V2 (ein Rollladen pro Automation)
   description: >
     Steuert einen einzelnen Rollladen anhand "seines" Fensters: morgendliches Öffnen,
-    Reaktion auf gekippte/geöffnete Fenster inkl. Rückfahr-Logik, Nachtmodus, Sturmschutz,
+    Reaktion auf gekippte/geöffnete Fenster inkl. Rückfahr-Logik und Regenschutz, Nachtmodus, Sturmschutz,
     automatische Beschattung anhand des Sonnenstands (Sonnenschutz, optional mit Filter
     nach Wetterlage), Sonnenheizen (das Gegenteil: öffnet in der Heizperiode
     heruntergelassene/vergessene Rollläden bei Sonne und Kälte) sowie ein Moskito-Modus,
@@ -46,8 +46,8 @@ blueprint:
             Einstellungen der Entität nachrüsten.
             Kann bei festverglasten Fenstern ohne Kontakt leer bleiben: Alle
             Zeit-, Sonnen- und Sturm-Funktionen laufen dann ganz normal, nur die
-            fensterbezogenen Features (Fenster-Interaktion, Benachrichtigungen,
-            Moskito-Modus, Lüftungs-Rücksichten) bleiben aus.
+            fensterbezogenen Features (Fenster-Interaktion, Regenschutz,
+            Benachrichtigungen, Moskito-Modus, Lüftungs-Rücksichten) bleiben aus.
           default: []
           selector:
             entity:
@@ -785,6 +785,99 @@ blueprint:
           default: false
           selector:
             boolean: {}
+    rain_protection_section:
+      name: Regenschutz beim Lüften
+      description: >
+        Fährt den Rollladen bei Regen auf eine Schutzposition, solange das Fenster
+        gekippt ist — damit es beim Lüften (z.B. die ganze Nacht über) nicht
+        hereinregnet. Nach dem Regen fährt er auf die Position von vor dem Regen
+        zurück. Solange der Regenschutz greift, fahren Morgens-Öffnen, Nachtmodus,
+        Beschattung und Sonnenheizen den Rollladen nicht über die Regenposition.
+        Der Sturmschutz hat Vorrang. Ohne Regensensor ist das Feature aus.
+        Benötigt einen Fenstersensor.
+      icon: mdi:weather-pouring
+      collapsed: true
+      input:
+        rain_sensor:
+          name: Regensensor (optional)
+          description: >
+            Ein binärer Regensensor oder ein input_boolean-Helfer — "an" bedeutet
+            Regen. Leer lassen, um den Regenschutz nicht zu nutzen. Wetter-Entität
+            oder Regenmengen-Sensor lassen sich über einen Template-Binärsensor
+            einbinden (siehe Dokumentation).
+          default: []
+          selector:
+            entity:
+              filter:
+                - domain: binary_sensor
+                - domain: input_boolean
+        rain_position:
+          name: Position bei Regen
+          description: >
+            Die Position (in %), auf die der Rollladen bei Regen und gekipptem
+            Fenster fährt. Es wird nur heruntergefahren — steht der Rollladen
+            bereits tiefer, bleibt er, wo er ist.
+          default: 10
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 1
+              mode: slider
+              unit_of_measurement: "%"
+        rain_delay:
+          name: Verzögerung bei Regenbeginn
+          description: >
+            Der Regenschutz greift erst, wenn der Regensensor so lange ununterbrochen
+            Regen meldet (filtert einzelne Tropfen und Fehlmeldungen). 0 = sofort.
+          default: 2
+          selector:
+            number:
+              min: 0
+              max: 30
+              step: 1
+              mode: slider
+              unit_of_measurement: Minuten
+        rain_restore:
+          name: Nach dem Regen zurückfahren
+          description: >
+            Wenn aktiviert, fährt der Rollladen nach dem Regen wieder auf die
+            Position von vor dem Regen — sofern das Fenster dann noch gekippt
+            (bzw. geöffnet, siehe unten) ist und weder Nachtmodus, Sturm noch
+            Pause aktiv sind. Ein während des
+            Regens fälliges Morgens-Öffnen wird dabei nachgeholt. Wird das Fenster
+            vorher geschlossen, übernimmt die normale Fenster-Interaktion; hat
+            sie keine Ausgangsposition mehr (z.B. nach dem Morgens-Öffnen), fährt
+            der Rollladen gleich beim Schließen zurück. Bei Frost bleibt er in der
+            Regenposition (festgefrorener Panzer); nur ein vorgemerktes
+            Morgens-Öffnen fährt dann bis zur Maximal-Position des Frostschutzes.
+          default: true
+          selector:
+            boolean: {}
+        rain_restore_delay:
+          name: Zurückfahren nach X Min. ohne Regen
+          description: >
+            So lange muss der Regensensor ununterbrochen "kein Regen" melden, bevor
+            zurückgefahren wird (verhindert ständiges Auf und Ab bei Schauern).
+          default: 15
+          selector:
+            number:
+              min: 1
+              max: 120
+              step: 1
+              mode: slider
+              unit_of_measurement: Minuten
+        rain_include_open:
+          name: Auch bei ganz geöffnetem Fenster
+          description: >
+            Standardmäßig greift der Regenschutz nur bei gekipptem Fenster (bzw.
+            bei offenem, wenn "Öffnen wie Kippen behandeln" aktiv ist). Wenn
+            aktiviert, fährt der Rollladen auch bei komplett geöffnetem Fenster
+            auf die Regenposition.
+            ⚠️ Achtung: Für Balkon- und Terrassentüren nicht empfohlen — Aussperr-Gefahr!
+          default: false
+          selector:
+            boolean: {}
     frost_section:
       name: Frostschutz
       description: >
@@ -857,7 +950,8 @@ blueprint:
             weiterhin (Hardware-Schutz geht vor), und der "Rollladen schließen"-Knopf
             einer Benachrichtigung funktioniert wie der Wandtaster — bewusste
             Befehle werden nicht blockiert. Beim Ende der Pause wird ein inzwischen
-            aktiver Nachtmodus nachgeholt und die Beschattung neu bewertet;
+            aktiver Nachtmodus nachgeholt, bei Regen der Regenschutz hergestellt
+            und die Beschattung neu bewertet;
             verpasste Einzelereignisse (z.B. das morgendliche Öffnen oder das
             Zurückfahren nach dem Lüften) werden nicht nachgeholt.
           default: []
@@ -1023,6 +1117,44 @@ variables:
       {% endif %}
     {% endfor %}
     {{ ns.device_names }}
+  rain_sensor: !input rain_sensor
+  rain_position: !input rain_position
+  rain_delay: !input rain_delay
+  rain_restore: !input rain_restore
+  rain_include_open: !input rain_include_open
+  # Eigene Szene für den Regen-Snapshot — die Lüften-Szene (reclose_) bleibt unberührt
+  rain_scene: "{{ 'scene.rain_' ~ (cover_entity | slugify) }}"
+  # Merker: Der Regen-Snapshot enthält ein vorgemerktes Morgens-Öffnen (wichtig
+  # für den Frostschutz beim Zurückfahren, siehe Regen-Ende)
+  rain_morning_scene: "{{ 'scene.rain_morning_' ~ (cover_entity | slugify) }}"
+  # Fensterzustand, bei dem der Regenschutz greift: gekippt, offen nur mit
+  # "Öffnen wie Kippen behandeln" oder "Auch bei ganz geöffnetem Fenster".
+  # Ohne Fenstersensor gilt das Fenster als geschlossen — kein Regenschutz
+  rain_window_protected: >-
+    {{ window_sensor is string
+       and ((states(window_sensor) | lower) == 'tilted'
+            or ((states(window_sensor) | lower) in ['on', 'open']
+                and (treat_open_as_tilted or rain_include_open))) }}
+  # Regenschutz gilt gerade: Regen seit mindestens rain_delay (1 s Toleranz,
+  # damit der rain_start-Trigger selbst sicher besteht), Fenster im geschützten
+  # Zustand und Cover mit Positionsangabe. Andere Branches fahren dann nicht
+  # über die Regenposition
+  rain_hold: >-
+    {{ rain_sensor is string
+       and is_state(rain_sensor, 'on')
+       and (as_timestamp(now()) - as_timestamp(states[rain_sensor].last_changed)) >= (rain_delay | float(0)) * 60 - 1
+       and rain_window_protected
+       and state_attr(cover_entity, 'current_position') is not none }}
+  # Sturm gerade aktiv (für den Regenschutz; Wind-Sensor hat Vorrang vor der Wetter-Entität)
+  rain_storm_active: >-
+    {% if storm_wind_sensor is string %}
+      {% set wind = states(storm_wind_sensor) | float(0) %}
+    {% elif weather_entity is string %}
+      {% set wind = state_attr(weather_entity, 'wind_speed') | float(0) %}
+    {% else %}
+      {% set wind = 0 %}
+    {% endif %}
+    {{ storm_enabled and wind >= wind_speed_threshold }}
 
 # Nur für Trigger-Templates: filtert den Notification-Action-Event bereits im
 # Trigger, damit nicht jede Notification-Action jeder Instanz einen Lauf startet
@@ -1153,13 +1285,40 @@ triggers:
       seconds: 2
     id: mosquito_lights
     enabled: !input mosquito_enabled
+  # Regenschutz: leerer Regensensor = Trigger feuern nie (Feature aus)
+  - trigger: state
+    entity_id: !input rain_sensor
+    to: "on"
+    for:
+      minutes: !input rain_delay
+    id: rain_start
+  - trigger: state
+    entity_id: !input rain_sensor
+    to: "off"
+    for:
+      minutes: !input rain_restore_delay
+    id: rain_end
+  # Fenster zu: Regen-Snapshot verwerfen — das Zurückfahren übernimmt die
+  # normale Fenster-Interaktion (nur ohne deren Snapshot der Regen-Snapshot)
+  - trigger: state
+    entity_id: !input window_sensor
+    to:
+      - "off"
+      - "closed"
+      - "Closed"
+    for:
+      seconds: 2
+    id: rain_window_closed
 
 actions:
   # Pausier-Helfer: hält die AUTOMATIK an, mit drei Ausnahmen — Sturmschutz
-  # (Hardware-Schutz geht vor), Benachrichtigungs-Aufräumen (bewegt nichts) und
-  # der Notification-Knopf (ein bewusster Nutzer-Befehl, wie der Wandtaster)
+  # (Hardware-Schutz geht vor), Aufräumen (Benachrichtigung bzw. Regen-Snapshot;
+  # das Zurückfahren nach dem Regen bzw. beim Fensterschließen prüft die Pause
+  # selbst) und der Notification-Knopf (ein bewusster Nutzer-Befehl, wie der
+  # Wandtaster)
   - condition: >-
-      {{ trigger.id | default('') in ['storm_detected', 'window_closed', 'close_shutter_action']
+      {{ trigger.id | default('') in ['storm_detected', 'window_closed', 'close_shutter_action',
+                                      'rain_end', 'rain_window_closed']
          or not pause_active }}
   - choose:
       # --- MORGENS ÖFFNEN (Uhrzeit, Sonnenaufgang oder Bewegung) ---
@@ -1255,6 +1414,42 @@ actions:
                   {{ morning_position | int(100) }}
                 {% endif %}
           - condition: "{{ not storm_enabled or (wind_now | float(0)) < wind_speed_threshold }}"
+          # Regenschutz aktiv: nicht öffnen, sondern die (frostbegrenzte)
+          # Morgen-Position als Rückkehr-Position fürs Regenende vormerken
+          # (Regen-Snapshot überschreiben)
+          - if:
+              - "{{ rain_hold }}"
+            then:
+              # Bewegungs-Modus: nichts vormerken — der Bewegungs-Trigger feuert
+              # auch tagsüber, und in Regenposition wirkt ein längst geöffneter
+              # Rollladen "noch zu"; das Vormerken würde die Position von vor dem
+              # Regen überschreiben. Ist er nach dem Regen noch zu, öffnet die
+              # nächste Bewegung regulär
+              - if:
+                  - "{{ trigger.id != 'morning_motion' }}"
+                then:
+                  - if:
+                      - "{{ rain_restore }}"
+                      - "{{ state_attr(cover_entity, 'current_position') | int(101) < morning_target | int(100) }}"
+                    then:
+                      - action: scene.create
+                        data:
+                          scene_id: "{{ 'rain_' ~ (cover_entity | slugify) }}"
+                          entities: "{{ {cover_entity: {'state': 'open', 'current_position': morning_target | int(100)}} }}"
+                      # Merker fürs Regen-Ende (wird nie aktiviert)
+                      - action: scene.create
+                        data:
+                          scene_id: "{{ 'rain_morning_' ~ (cover_entity | slugify) }}"
+                          entities: "{{ {cover_entity: {'state': 'open', 'current_position': morning_target | int(100)}} }}"
+                  # Auch ein vorgemerktes Öffnen macht den Lüftungs-Snapshot aus
+                  # der Nacht ungültig (siehe unten)
+                  - if:
+                      - "{{ expand('scene.reclose_' ~ (cover_entity | slugify)) | count > 0 }}"
+                    then:
+                      - action: scene.delete
+                        target:
+                          entity_id: "{{ 'scene.reclose_' ~ (cover_entity | slugify) }}"
+              - stop: "Regenschutz aktiv — Morgens-Öffnen erst nach dem Regen"
           - choose:
               - conditions:
                   - "{{ state_attr(cover_entity, 'current_position') is not none }}"
@@ -1312,6 +1507,18 @@ actions:
                 target:
                   entity_id: "{{ solar_heating_status_helper }}"
           - choose:
+              # Regenschutz aktiv: Lüftungsposition höchstens bis zur Regenposition
+              - conditions:
+                  - "{{ rain_hold }}"
+                sequence:
+                  - action: cover.set_cover_position
+                    target:
+                      entity_id: !input cover
+                    data:
+                      position: >-
+                        {% set vent = tilted_position if ((states(window_sensor) | lower) == 'tilted' or treat_open_as_tilted)
+                           else night_ventilation_position %}
+                        {{ [vent | int, rain_position | int] | min }}
               - conditions:
                   - >-
                     {{ window_sensor is string
@@ -1413,6 +1620,27 @@ actions:
               - action: input_boolean.turn_off
                 target:
                   entity_id: "{{ shading_status_helper }}"
+          # Regenschutz nachholen: Regnet es bei gekipptem Fenster, nicht bis zum
+          # nächsten Regenbeginn ungeschützt bleiben. Sturm hat Vorrang (außer im
+          # Panzer-Modus, dort ist Herunterfahren ohnehin die Schutzrichtung)
+          - if:
+              - "{{ rain_hold }}"
+              - "{{ not rain_storm_active or panzer_mode }}"
+              - "{{ state_attr(cover_entity, 'current_position') | int(-1) > rain_position }}"
+            then:
+              - if:
+                  - "{{ rain_restore and expand(rain_scene) | count == 0 }}"
+                then:
+                  - action: scene.create
+                    data:
+                      scene_id: "{{ 'rain_' ~ (cover_entity | slugify) }}"
+                      snapshot_entities:
+                        - "{{ cover_entity }}"
+              - action: cover.set_cover_position
+                target:
+                  entity_id: !input cover
+                data:
+                  position: !input rain_position
           # Verpassten Nachtmodus nachholen — "nachts offen" wäre der schlimmste
           # während der Pause verpasste Zustand. Sturm hat weiterhin Vorrang.
           - variables:
@@ -1429,6 +1657,18 @@ actions:
               - "{{ not storm_enabled or (wind_now | float(0)) < wind_speed_threshold }}"
             then:
               - choose:
+                  # Regenschutz aktiv: Lüftungsposition höchstens bis zur Regenposition
+                  - conditions:
+                      - "{{ rain_hold }}"
+                    sequence:
+                      - action: cover.set_cover_position
+                        target:
+                          entity_id: !input cover
+                        data:
+                          position: >-
+                            {% set vent = tilted_position if ((states(window_sensor) | lower) == 'tilted' or treat_open_as_tilted)
+                               else night_ventilation_position %}
+                            {{ [vent | int, rain_position | int] | min }}
                   - conditions:
                       - >-
                         {{ window_sensor is string
@@ -1484,6 +1724,9 @@ actions:
                     Bitte in der Automation einen Helfer auswählen oder den
                     Sonnenschutz deaktivieren.
               - stop: "Sonnenschutz aktiviert, aber kein Status-Helfer konfiguriert"
+          # Regenschutz aktiv: Beschattung ruht — sie würde den Rollladen sonst über
+          # die Regenposition fahren (Sonnenstand im Sichtfeld heißt nicht Sonnenschein)
+          - condition: "{{ not rain_hold }}"
           - variables:
               sun_elevation: "{{ state_attr('sun.sun', 'elevation') | float(0) }}"
               sun_azimuth: "{{ state_attr('sun.sun', 'azimuth') | float(0) }}"
@@ -1657,6 +1900,8 @@ actions:
                     Bitte in der Automation einen Helfer auswählen oder Sonnenheizen
                     deaktivieren.
               - stop: "Sonnenheizen aktiviert, aber kein Status-Helfer konfiguriert"
+          # Regenschutz aktiv: der Rollladen in Regenposition ist nicht "vergessen"
+          - condition: "{{ not rain_hold }}"
           - variables:
               sun_elevation: "{{ state_attr('sun.sun', 'elevation') | float(0) }}"
               sun_azimuth: "{{ state_attr('sun.sun', 'azimuth') | float(0) }}"
@@ -1911,6 +2156,29 @@ actions:
                   snapshot_entities:
                     - "{{ cover_entity }}"
           - choose:
+              # Regenschutz: Es regnet bereits — statt der Lüftungsposition höchstens
+              # die Regenposition (nur abwärts). Sturm hat Vorrang (außer Panzer-Modus).
+              # Beschattungs-Status bleibt an (siehe rain_start)
+              - conditions:
+                  - "{{ rain_hold }}"
+                  - "{{ not rain_storm_active or panzer_mode }}"
+                sequence:
+                  - if:
+                      - "{{ state_attr(cover_entity, 'current_position') | int(-1) > rain_position }}"
+                    then:
+                      - if:
+                          - "{{ rain_restore and expand(rain_scene) | count == 0 }}"
+                        then:
+                          - action: scene.create
+                            data:
+                              scene_id: "{{ 'rain_' ~ (cover_entity | slugify) }}"
+                              snapshot_entities:
+                                - "{{ cover_entity }}"
+                      - action: cover.set_cover_position
+                        target:
+                          entity_id: !input cover
+                        data:
+                          position: !input rain_position
               - conditions:
                   - >-
                     {{ (trigger.to_state.state | lower) == 'tilted'
@@ -2051,3 +2319,105 @@ actions:
                           - action: input_boolean.turn_off
                             target:
                               entity_id: "{{ shading_status_helper }}"
+
+      # --- REGENSCHUTZ: REGEN BEI GEKIPPTEM FENSTER ---
+      - conditions:
+          - condition: trigger
+            id: rain_start
+          - "{{ rain_hold }}"
+          # Sturm hat Vorrang (außer im Panzer-Modus, dort ist Herunterfahren
+          # ohnehin die Schutzrichtung)
+          - "{{ not rain_storm_active or panzer_mode }}"
+          # Nur abwärts: Steht der Rollladen schon tiefer, bleibt er dort
+          - "{{ state_attr(cover_entity, 'current_position') | int(-1) > rain_position }}"
+        sequence:
+          # Position von vor dem Regen sichern — nur, wenn noch kein Regen-Snapshot
+          # existiert: Ein neuer Schauer nach kurzer Regenpause (oder ein Fenster-
+          # Wechsel im selben Moment) darf ihn nicht mit der Regenposition überschreiben
+          - if:
+              - "{{ rain_restore and expand(rain_scene) | count == 0 }}"
+            then:
+              - action: scene.create
+                data:
+                  scene_id: "{{ 'rain_' ~ (cover_entity | slugify) }}"
+                  snapshot_entities:
+                    - "{{ cover_entity }}"
+          # Beschattungs-Status bewusst NICHT freigeben: Während des Regens ruht die
+          # Beschattung ohnehin. Bliebe der Helfer aus, ginge ein Beschattungs-Ende
+          # verloren, das in den Regen fällt (Sonne weg) — nach dem Zurückfahren
+          # bliebe der Rollladen bis zur Nacht in der Beschattungsposition. So führt
+          # der nächste Tick nach dem Regen nach oder beendet regulär
+          - action: cover.set_cover_position
+            target:
+              entity_id: !input cover
+            data:
+              position: !input rain_position
+
+      # --- REGENSCHUTZ: REGEN VORBEI ODER FENSTER ZU → ZURÜCKFAHREN ---
+      # Läuft auch während der Pause (Gate-Ausnahme), damit der Snapshot sicher
+      # verworfen wird — zurückgefahren wird dann aber nicht
+      - conditions:
+          - condition: trigger
+            id:
+              - rain_end
+              - rain_window_closed
+          - "{{ expand(rain_scene) | count > 0 }}"
+        sequence:
+          # Zustand jetzt bewerten: kein Nachtmodus, kein Sturm, keine Pause —
+          # sonst nur den Snapshot verwerfen. Regen-Ende: Fenster noch im
+          # geschützten Zustand (wurde es geschlossen, kümmert sich das Schließen).
+          # Fenster zu: Zurückfahren übernimmt die normale Fenster-Interaktion mit
+          # ihrem Snapshot; gibt es den nicht mehr (das Morgens-Öffnen hat ihn
+          # verworfen), fährt der Regen-Snapshot zurück — sonst ginge ein
+          # vorgemerktes Morgens-Öffnen verloren und der Rollladen bliebe den
+          # ganzen Tag in der Regenposition.
+          # Der Beschattungs-Status bleibt an (siehe rain_start)
+          - if:
+              - "{{ rain_restore }}"
+              - >-
+                {% if trigger.id == 'rain_end' %}
+                  {{ rain_window_protected }}
+                {% else %}
+                  {{ expand('scene.reclose_' ~ (cover_entity | slugify)) | count == 0 }}
+                {% endif %}
+              - "{{ not (night_mode_boolean is string and is_state(night_mode_boolean, 'on')) }}"
+              - "{{ not rain_storm_active }}"
+              - "{{ not pause_active }}"
+            then:
+              - choose:
+                  - conditions:
+                      - "{{ not frost_active }}"
+                    sequence:
+                      - action: scene.turn_on
+                        target:
+                          entity_id: "{{ rain_scene }}"
+                  # Frost: Bei Eis- und Schneeregen um den Gefrierpunkt friert der
+                  # nasse Panzer gern fest — nicht auf die Position von vor dem Regen
+                  # zurück, der Rollladen bleibt tief in der Regenposition. Ein
+                  # vorgemerktes Morgens-Öffnen wird dagegen wie sonst bei Frost nur
+                  # begrenzt, nicht verboten (sonst bliebe es den ganzen Tag dunkel)
+                  - conditions:
+                      - "{{ expand(rain_morning_scene) | count > 0 }}"
+                      - >-
+                        {{ state_attr(cover_entity, 'current_position') | int(101)
+                           < [morning_position | int(100), frost_max_position | int(100)] | min }}
+                    sequence:
+                      - action: cover.set_cover_position
+                        target:
+                          entity_id: !input cover
+                        data:
+                          position: "{{ [morning_position | int(100), frost_max_position | int(100)] | min }}"
+          # Snapshot und Merker in jedem Fall verwerfen, sonst würde der nächste
+          # Regen den Snapshot nicht neu anlegen (continue_on_error: paralleler
+          # Lauf hat ihn evtl. schon gelöscht)
+          - action: scene.delete
+            target:
+              entity_id: "{{ rain_scene }}"
+            continue_on_error: true
+          - if:
+              - "{{ expand(rain_morning_scene) | count > 0 }}"
+            then:
+              - action: scene.delete
+                target:
+                  entity_id: "{{ rain_morning_scene }}"
+                continue_on_error: true
