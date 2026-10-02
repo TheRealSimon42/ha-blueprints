@@ -190,6 +190,42 @@ Wer die Beschattung dauerhaft nicht will, deaktiviert den Schalter "Sonnenschutz
 aktivieren" in der Instanz — der Status-Helfer ist **kein** Ausschalter, er ist das
 interne Gedächtnis der Automation und stellt sich bei Handbetätigung einfach zurück.
 
+### Mindestabstand zwischen Nachführ-Fahrten (Motorschonung)
+
+Beim Nachführen fährt der Rollladen vor allem an Ost- und Westfenstern gern alle 5 bis
+10 Minuten ein Stück. Wer das seltener möchte, hat im Sonnenschutz-Abschnitt zwei
+Stellschrauben: Die **Minimale Positionsänderung** legt fest, wie groß ein
+Nachführ-Schritt mindestens sein muss, der **Mindestabstand zwischen
+Nachführ-Fahrten** (Standard 0 = aus), wie lange der Rollladen vorher stillgestanden
+haben muss.
+
+Gemessen wird die Zeit seit der letzten Bewegung — egal, wer sie ausgelöst hat
+(Automatik, Wandtaster, App). Grundlage ist der Zeitstempel `last_updated` des
+Rollladens, weil Teilfahrten bei vielen Aktoren nur das Attribut `current_position`
+ändern und den Zustand ("offen") stehen lassen. Fällt eine Fahrt in den Abstand, wird
+sie übersprungen; die erste Prüfung nach Ablauf holt sie nach. Geprüft wird im
+5-Minuten-Takt, deshalb lässt sich der Abstand in 5er-Schritten einstellen.
+
+Der Abstand gilt bewusst nur für die beiden periodischen Komfort-Fahrten: das
+**Nachführen** einer laufenden Beschattung und das **Öffnen durch Sonnenheizen**.
+Alles, was schützt oder auf ein Ereignis reagiert, fährt weiterhin sofort:
+Sturmschutz, Nachtmodus, Morgens öffnen, Fenster-Interaktion, der "Rollladen
+schließen"-Knopf — und **Beginn und Ende einer Beschattung**. Diese beiden sind
+keine Feinkorrektur, sondern der eigentliche Zustandswechsel und schalten den
+Status-Helfer um: Verzögert hieße das Sonne im Raum bzw. unnötig lange Dunkelheit,
+und eine ausgelassene Fahrt bei schon umgeschaltetem Helfer sähe beim nächsten Tick
+wie ein manueller Eingriff aus (Beginn) bzw. ließe den Rollladen unten (Ende).
+
+**Wechselwirkung mit der Eingriffs-Erkennung:** Während des Abstands wandert die
+Sonne weiter, der nachgeholte Schritt fällt also größer aus als sonst. Überschreitet
+er die _Toleranz für manuelle Eingriffe_ (Standard 20 %), wertet die Automation ihn
+als Handbetätigung und lässt den Rollladen bis zum Beschattungs-Ende stehen. Als
+Richtwert (Deutschland, Standard-Geometrie): Bei Ost- und Westfenstern verschiebt
+sich die Sollposition morgens bzw. abends um bis zu etwa 25 % in 10 Minuten und 35 %
+in 15 Minuten, bei Südfenstern deutlich weniger. Eine kleinere Sonneneinfall-Tiefe
+und sehr schräg einfallende Sonne beschleunigen das. Bei längeren Abständen also die
+Toleranz anheben (bis 60 %) oder den Abstand kürzer wählen.
+
 ### Warum die Status-Helfer nötig sind
 
 Blueprints haben keinen eigenen Speicher, und bei Funk-Rollläden lässt sich aus den
@@ -219,6 +255,18 @@ die Einmal-Logik des Sonnenheizens und die Eingriffs-Erkennung auf.
   betreten, öffnet er erneut. Wer das nicht will, nutzt den Pausier-Helfer.
 - **Frostschutz** begrenzt die automatischen Fahrten, nicht das Zurückfahren auf eine
   gemerkte Ausgangsposition nach dem Lüften (die war ja bereits erreicht).
+- **Mindestabstand und `last_updated`:** Für den Mindestabstand zählt jede
+  Aktualisierung des Rollladens als Bewegung — auch ein kurzes `unavailable`
+  (Funk-Aussetzer, Reconnect), ein Neustart von Home Assistant oder Attribute, die
+  sich ohne Fahrt ändern (manche Integrationen hängen z. B. Signalstärke oder "zuletzt
+  gesehen" an). Ändern sich solche Attribute ständig, bleibt `last_updated` dauerhaft
+  jung, und Nachführen bzw. Sonnenheizen-Öffnen kommen nie zum Zug — dann den
+  Mindestabstand auf 0 lassen. Prüfen lässt sich das unter _Entwicklerwerkzeuge →
+  Template_ mit `{{ states['cover.dein_rollladen'].last_updated }}`.
+- **Mindestabstand und Eingriffs-Erkennung:** Ein großer Abstand bei kleiner
+  _Toleranz für manuelle Eingriffe_ lässt den nachgeholten Schritt wie eine
+  Handbetätigung aussehen — das Nachführen ruht dann bis zum Beschattungs-Ende
+  (Richtwerte siehe "Mindestabstand zwischen Nachführ-Fahrten").
 
 ## FAQ
 
@@ -292,6 +340,13 @@ sich die Automation die Ausgangsposition und stellt sie nach dem Schließen wied
 morgendliche Öffnen, wird stattdessen deren Zustand hergestellt — die gemerkte
 Position gilt als veraltet, sobald die Automatik den Rollladen aus anderem Grund
 legitim bewegt hat.
+
+**Der Rollladen fährt beim Nachführen ständig ein kleines Stück — geht das
+seltener?** Ja, mit zwei Einstellungen im Sonnenschutz-Abschnitt: "Minimale
+Positionsänderung" (größere, dafür seltenere Schritte) und "Mindestabstand zwischen
+Nachführ-Fahrten" (Ruhezeit seit der letzten Bewegung, gilt auch fürs
+Sonnenheizen-Öffnen). Beim Mindestabstand die Toleranz für manuelle Eingriffe im
+Blick behalten — Details unter "Mindestabstand zwischen Nachführ-Fahrten".
 
 **Kann ich denselben Status-Helfer für mehrere Fenster verwenden?** Nein — er
 speichert den Zustand genau eines Fensters. Ein geteilter Helfer führt zu falschem
