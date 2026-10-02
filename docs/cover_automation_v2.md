@@ -65,7 +65,7 @@ Fenster, bis der Helfer gesetzt oder das Feature deaktiviert ist.
 | Sonnenheizen        | Öffnet im Winter vergessene Rollos, wenn Sonne ins Fenster scheint und es kalt ist                                                                                       | eigener Status-Helfer, Geometrie                                     |
 | Frostschutz         | Begrenzt bei Frost alle automatischen Aufwärts-Fahrten auf eine schonende Maximal-Position (festgefrorener Panzer)                                                       | Außentemperatur-Sensor                                               |
 | Moskito-Modus       | Schaltet beim Fensteröffnen nach Sonnenuntergang die Lichter im Raum aus (mit Ausnahmen)                                                                                 | Fenstersensor                                                        |
-| Benachrichtigungen  | Meldet zu lange offene/gekippte Fenster aufs Handy, mit "Rollladen schließen"-Button; verschwindet automatisch beim Schließen                                            | Companion-App-Geräte, Fenstersensor                                  |
+| Benachrichtigungen  | Meldet zu lange offene/gekippte Fenster aufs Handy, mit "Rollladen schließen"-Button; verschwindet automatisch beim Schließen; optional Erinnerungen, Alexa & Co.        | Companion-App-Geräte oder Notify-Dienste, Fenstersensor              |
 | Pausieren           | Hält die komplette Automation an, solange ein Helfer eingeschaltet ist — z.B. während Videoaufnahmen oder wenn Gäste schlafen                                            | `input_boolean`-Helfer (optional)                                    |
 
 **Prioritäten:** Der **Sturmschutz gewinnt immer** — bei Starkwind bewegen weder
@@ -190,6 +190,55 @@ Wer die Beschattung dauerhaft nicht will, deaktiviert den Schalter "Sonnenschutz
 aktivieren" in der Instanz — der Status-Helfer ist **kein** Ausschalter, er ist das
 interne Gedächtnis der Automation und stellt sich bei Handbetätigung einfach zurück.
 
+### Benachrichtigungen, Erinnerungen und Zusatz-Dienste
+
+Die erste Meldung kommt, wenn das Fenster länger als die eingestellte Zeit offen
+bzw. gekippt ist (beide Zeiten getrennt einstellbar). Auf dem Handy trägt sie
+einen "Rollladen schließen"-Knopf und verschwindet von selbst, sobald das Fenster
+geschlossen wird.
+
+**Erinnerungen:** Ist "Erinnerung alle X Min. wiederholen" größer als 0, kommt die
+Meldung erneut, solange das Fenster in derselben Stellung bleibt — höchstens so oft
+wie unter "Maximale Anzahl Erinnerungen" eingestellt. Beispiel: offen nach 45
+Minuten, Abstand 15, maximal 3 → Meldungen nach 45, 60, 75 und 90 Minuten. Der Text
+nennt jeweils die aktuelle Dauer ("seit über 75 Minuten offen"). Auf dem Handy
+ersetzt jede Erinnerung die vorherige, der Knopf bleibt. Die Erinnerungen enden:
+
+- **sofort**, wenn das Fenster geschlossen wird,
+- wenn das Fenster von offen auf gekippt wechselt (oder umgekehrt) oder der Sensor
+  kurz aussetzt — für die neue Stellung kommt nach deren eigener Wartezeit wieder
+  eine erste Meldung mit eigenen Erinnerungen,
+- nach der letzten erlaubten Erinnerung.
+
+Der "Rollladen schließen"-Knopf schließt nur den Rollladen — solange das Fenster
+offen bleibt, kommen die Erinnerungen weiter.
+
+Fällt eine Erinnerung in den Schlafmodus oder eine Pause, entfällt sie, zählt aber
+mit; ist danach noch eine übrig, kommt sie ganz normal. Ist der Schlafmodus (oder
+die Pause) schon aktiv, wenn die erste Meldung fällig wird, entfallen die Meldung
+und ihre Erinnerungen ganz — wie bisher.
+
+**Zusatz-Dienste:** Unter "Zusätzliche Benachrichtigungs-Dienste" lassen sich
+weitere Notify-Dienste eintragen, z. B. `notify.alexa_media_kueche`,
+`notify.persistent_notification` oder der Dienst eines Telegram-Bots — mit oder ohne
+`notify.`-Präfix. Integrationen, die statt eines Dienstes eine
+Benachrichtigungs-Entität (`notify.…`) anlegen, funktionieren ebenfalls; die
+Automation erkennt das selbst. Zusatz-Dienste bekommen Titel und Text, bei der
+ersten Meldung und bei jeder Erinnerung, aber keinen Knopf und keine Tag-Daten
+(fremde Dienste kennen sie nicht). Schlafmodus und Pause gelten auch für sie.
+
+Ein falscher Eintrag stört die übrigen Ziele nicht: Einträge im falschen Format
+(Leerzeichen, Umlaute, anderer Bereich als `notify`) werden übersprungen und im
+Home-Assistant-Log als Warnung genannt. Gibt es einen Dienst nicht (Tippfehler),
+steht der Fehler im Log und im Trace — die übrigen Ziele und die Erinnerungen
+laufen weiter. Dafür wird jeder Zusatz-Dienst in einem eigenen, kurzen Lauf der
+Automation bedient; diese Läufe tauchen deshalb zusätzlich in den Traces auf.
+
+Hängen mehrere Rollläden an einem Fenster (mehrere Instanzen mit demselben
+Fenstersensor), meldet jede Instanz für sich. Auf dem Handy ersetzt die zweite
+Meldung dank gleichem Tag die erste, Zusatz-Dienste bekämen die Nachricht aber
+mehrfach — trage sie dann nur in einer der Instanzen ein.
+
 ### Warum die Status-Helfer nötig sind
 
 Blueprints haben keinen eigenen Speicher, und bei Funk-Rollläden lässt sich aus den
@@ -219,6 +268,13 @@ die Einmal-Logik des Sonnenheizens und die Eingriffs-Erkennung auf.
   betreten, öffnet er erneut. Wer das nicht will, nutzt den Pausier-Helfer.
 - **Frostschutz** begrenzt die automatischen Fahrten, nicht das Zurückfahren auf eine
   gemerkte Ausgangsposition nach dem Lüften (die war ja bereits erreicht).
+- **Zusatz-Dienste werden nicht abgeräumt:** Beim Schließen des Fensters verschwindet
+  nur die Meldung auf den Companion-App-Geräten. Was an Zusatz-Dienste ging
+  (Telegram-Nachricht, dauerhafte Benachrichtigung …), bleibt stehen, und jede
+  Erinnerung kommt dort als eigene Nachricht an.
+- **Erinnerungen überleben keinen Neustart:** Ein Neustart von Home Assistant (ebenso
+  das Speichern dieser Automation) beendet laufende Erinnerungen; sie werden danach
+  nicht fortgesetzt.
 
 ## FAQ
 
@@ -303,7 +359,18 @@ heizen unter 12 °C); die Schwellen sollten sich nicht überlappen.
 
 **Die Fenster-offen-Meldung bleibt auf dem Handy stehen?** Sie verschwindet
 automatisch, sobald das Fenster geschlossen wird — vorausgesetzt, die Companion-App
-ist aktuell (das Aufräumen nutzt `clear_notification` mit Tags).
+ist aktuell (das Aufräumen nutzt `clear_notification` mit Tags). Für Zusatz-Dienste
+gilt das nicht, siehe Bekannte Grenzen.
+
+**Kann ich zusätzlich per Alexa oder Telegram gewarnt werden?** Ja, über
+"Zusätzliche Benachrichtigungs-Dienste" im Abschnitt Benachrichtigungen. Alexa
+(Integration Alexa Media Player): `notify.alexa_media_<gerät>` eintragen, z. B.
+`notify.alexa_media_kueche` — Alexa liest den Text vor, der Titel entfällt dabei.
+Telegram: den Notify-Dienst deines Bots eintragen (z. B. `notify.telegram_familie`)
+oder, falls deine Telegram-Integration eine Benachrichtigungs-Entität pro Chat
+anlegt, deren Entitäts-ID. Den genauen Namen findest du unter _Entwicklerwerkzeuge →
+Aktionen_ (nach "notify." suchen) bzw. bei den Entitäten. Beide bekommen die erste
+Meldung und jede Erinnerung, aber keinen "Rollladen schließen"-Knopf.
 
 **Mein Kontakt kennt nur offen/geschlossen, das Fenster wird aber eigentlich nur
 gekippt?** Dafür gibt es in der Fenster-Interaktion den Schalter "Öffnen wie Kippen

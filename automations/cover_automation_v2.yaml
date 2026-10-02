@@ -887,19 +887,40 @@ blueprint:
       description: >
         Benachrichtigungen bei zu lange offenem oder gekipptem Fenster. Wird das
         Fenster geschlossen, verschwindet die Meldung automatisch vom Gerät.
+        Optional mit Erinnerungen in festem Abstand und zusätzlichen Diensten
+        (z.B. Alexa oder Telegram).
         Benötigt einen Fenstersensor.
       icon: mdi:bell
       collapsed: true
       input:
         notification_device:
           name: Benachrichtigungs-Geräte
-          description: Geräte mit der Home Assistant Companion App. Leer = keine Benachrichtigungen.
+          description: >
+            Geräte mit der Home Assistant Companion App. Leer = keine
+            Handy-Benachrichtigungen (Zusatz-Dienste im nächsten Feld werden
+            trotzdem benachrichtigt).
           default: []
           selector:
             device:
               multiple: true
               filter:
                 - integration: mobile_app
+        notification_extra_targets:
+          name: Zusätzliche Benachrichtigungs-Dienste (optional)
+          description: >
+            Weitere Notify-Dienste, die Titel und Text der Meldung bekommen — bei
+            der ersten Meldung und bei jeder Erinnerung, z.B.
+            notify.alexa_media_kueche, notify.persistent_notification oder der
+            Notify-Dienst deines Telegram-Bots. Ein Dienst pro Eintrag, mit oder
+            ohne "notify."-Präfix; Benachrichtigungs-Entitäten (notify.…) gehen
+            ebenfalls. Diese Ziele bekommen keinen "Rollladen schließen"-Knopf,
+            und dort wird beim Schließen des Fensters nichts abgeräumt. Ein
+            falscher Eintrag stört den Versand an die übrigen Ziele nicht
+            (Hinweis im Home-Assistant-Log).
+          default: []
+          selector:
+            text:
+              multiple: true
         notification_timeout:
           name: Benachrichtigung nach X Min. (Fenster offen)
           default: 45
@@ -920,6 +941,37 @@ blueprint:
               step: 1
               mode: slider
               unit_of_measurement: Minuten
+        notification_repeat_interval:
+          name: Erinnerung alle X Min. wiederholen
+          description: >
+            Ist das Fenster nach der ersten Meldung weiterhin offen bzw. gekippt,
+            wird die Meldung in diesem Abstand erneut gesendet. Auf dem Handy
+            ersetzt sie die vorherige Meldung, der "Rollladen schließen"-Knopf
+            bleibt. Die Erinnerungen enden, sobald das Fenster geschlossen wird
+            (oder von offen auf gekippt wechselt bzw. umgekehrt). 0 = keine
+            Wiederholung.
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 120
+              step: 5
+              mode: slider
+              unit_of_measurement: Minuten
+        notification_repeat_max:
+          name: Maximale Anzahl Erinnerungen
+          description: >
+            Wie oft die Meldung höchstens wiederholt wird (zusätzlich zur ersten
+            Meldung). Nur wirksam, wenn oben ein Abstand gesetzt ist. Fällt eine
+            Erinnerung in den Schlafmodus oder eine Pause, entfällt sie, zählt
+            aber mit.
+          default: 3
+          selector:
+            number:
+              min: 1
+              max: 10
+              step: 1
+              mode: slider
         use_area_name:
           name: Bereichsnamen in Benachrichtigungen verwenden
           description: Wenn aktiviert, wird der Bereichsname (z.B. "Wohnzimmer") statt des Sensor-Namens verwendet.
@@ -928,7 +980,9 @@ blueprint:
             boolean: {}
         sleep_mode_boolean:
           name: Schlafmodus-Helfer (optional)
-          description: Wenn dieser input_boolean 'on' ist, werden keine Benachrichtigungen gesendet.
+          description: >
+            Wenn dieser input_boolean 'on' ist, werden keine Benachrichtigungen
+            gesendet — auch keine Erinnerungen und nichts an die Zusatz-Dienste.
           default: []
           selector:
             entity:
@@ -1012,6 +1066,25 @@ variables:
   notification_timeout: !input notification_timeout
   notification_timeout_tilted: !input notification_timeout_tilted
   notification_device: !input notification_device
+  notification_repeat_interval: !input notification_repeat_interval
+  notification_repeat_max: !input notification_repeat_max
+  notification_extra_targets: !input notification_extra_targets
+  # Zusatz-Dienste normalisieren: mit oder ohne "notify."-Präfix, Groß-/
+  # Kleinschreibung und Leerzeichen egal. Einträge in ungültigem Format landen
+  # in "invalid" (Warnung im Log), leere Einträge werden still übergangen
+  notification_extra_parsed: >-
+    {% set raw = [notification_extra_targets] if notification_extra_targets is string else (notification_extra_targets or []) %}
+    {% set ns = namespace(valid=[], invalid=[]) %}
+    {% for t in raw if t is string %}
+      {% set s = t | string | trim | lower | regex_replace('^notify\\.', '') %}
+      {% if s | regex_match('^[a-z0-9_]+$') %}
+        {% if s not in ns.valid %}{% set ns.valid = ns.valid + [s] %}{% endif %}
+      {% elif t | string | trim | length > 0 %}
+        {% set ns.invalid = ns.invalid + [t | string | trim] %}
+      {% endif %}
+    {% endfor %}
+    {{ {'valid': ns.valid, 'invalid': ns.invalid} }}
+  notification_extra_services: "{{ notification_extra_parsed.valid }}"
   action_id: "{{ 'CLOSE_SHUTTER__' ~ window_sensor }}"
   notification_tag: "{{ 'fenster_offen_' ~ (window_sensor | slugify) }}"
   device_name_map: >
@@ -1028,6 +1101,7 @@ variables:
 # Trigger, damit nicht jede Notification-Action jeder Instanz einen Lauf startet
 trigger_variables:
   window_sensor_tv: !input window_sensor
+  cover_tv: !input cover
 
 triggers:
   - trigger: time
@@ -1133,6 +1207,14 @@ triggers:
     event_data:
       action: "CLOSE_SHUTTER__{{ window_sensor_tv }}"
     id: close_shutter_action
+  # Interner Versand an einen Zusatz-Dienst (siehe Benachrichtigungs-Zweig);
+  # über Rollladen + Fenster gefiltert, damit nur die eigene Instanz reagiert
+  - trigger: event
+    event_type: s42_rollladen_zusatz_meldung
+    event_data:
+      cover: "{{ cover_tv }}"
+      window: "{{ window_sensor_tv }}"
+    id: notify_extra_target
   - trigger: time_pattern
     minutes: "/5"
     id: shading_tick
@@ -1769,14 +1851,19 @@ actions:
             target:
               entity_id: "{{ lights_to_turn_off }}"
 
-      # --- BENACHRICHTIGUNG: FENSTER LANGE OFFEN/GEKIPPT ---
+      # --- BENACHRICHTIGUNG: FENSTER LANGE OFFEN/GEKIPPT (+ ERINNERUNGEN) ---
       - conditions:
           - condition: trigger
             id:
               - window_open_long
               - window_tilted_long
           - "{{ not (sleep_mode_boolean is string and is_state(sleep_mode_boolean, 'on')) }}"
-          - "{{ device_name_map | length > 0 }}"
+          # Ungültige Zusatz-Dienste zählen mit, damit die Log-Warnung auch kommt,
+          # wenn sie die einzigen Ziele sind (versendet wird dann nichts)
+          - >-
+            {{ device_name_map | length > 0
+               or notification_extra_services | length > 0
+               or notification_extra_parsed.invalid | length > 0 }}
         sequence:
           - variables:
               state_word: "{{ 'offen' if trigger.id == 'window_open_long' else 'gekippt' }}"
@@ -1794,29 +1881,143 @@ actions:
                 {%- else -%}
                   Fenster {{ state_word }}
                 {%- endif -%}
-              message_text: >-
-                {%- if has_area -%}
-                  Das Fenster im Bereich '{{ window_label }}' ist seit über {{ timeout_used }} Minuten {{ state_word }}.
-                {%- else -%}
-                  Fenster '{{ window_label }}' ist seit über {{ timeout_used }} Minuten {{ state_word }}.
-                {%- endif -%}
+              # Die Erinnerungen gehören zu genau dieser Offen-/Gekippt-Phase
+              notify_states: "{{ ['on', 'open'] if trigger.id == 'window_open_long' else ['tilted'] }}"
+              # Durchläufe = erste Meldung + Erinnerungen (Abstand 0 = nur die erste)
+              notify_rounds: >-
+                {{ 1 + (notification_repeat_max | int(0) if notification_repeat_interval | int(0) > 0 else 0) }}
+          # Ungültige Zusatz-Dienste nicht still verwerfen, sondern im Log melden
+          - if:
+              - "{{ notification_extra_parsed.invalid | length > 0 }}"
+            then:
+              - action: system_log.write
+                continue_on_error: true
+                data:
+                  level: warning
+                  message: >-
+                    Rollladensteuerung "{{ state_attr(cover_entity, 'friendly_name') or cover_entity }}":
+                    Zusatz-Benachrichtigungsdienste mit ungültigem Format ignoriert:
+                    {{ notification_extra_parsed.invalid | join(', ') }}
+                    (erwartet z.B. notify.alexa_media_kueche)
           - repeat:
-              for_each: "{{ device_name_map }}"
+              count: "{{ notify_rounds }}"
               sequence:
-                # Ein einzelnes umbenanntes/entferntes Gerät darf den Versand an
-                # die übrigen Geräte nicht abbrechen
-                - action: "notify.{{ repeat.item }}"
-                  continue_on_error: true
-                  data:
-                    title: "{{ title_text }}"
-                    message: "{{ message_text }}"
-                    data:
-                      # Gleicher Tag pro Fenster: "gekippt" ersetzt eine ältere
-                      # "offen"-Meldung, und das Schließen räumt sie wieder ab
-                      tag: "{{ notification_tag }}"
-                      actions:
-                        - action: "{{ action_id }}"
-                          title: Rollladen schließen
+                # Vor jeder Erinnerung den Abstand abwarten. Jeder echte Zustandswechsel
+                # (zu, offen <-> gekippt, Sensor-Aussetzer) beendet die Phase sofort —
+                # sonst liefen nach einem Prellen zwei Erinnerungs-Schleifen parallel.
+                # "to: null" ignoriert Attribut-Änderungen und force_update-Meldungen
+                # mit unverändertem Zustand; das Abräumen erledigt der Schließen-Zweig
+                - if:
+                    - "{{ repeat.index > 1 }}"
+                  then:
+                    - wait_for_trigger:
+                        - trigger: state
+                          entity_id: !input window_sensor
+                          to: null
+                      timeout:
+                        minutes: !input notification_repeat_interval
+                      continue_on_timeout: true
+                    - if:
+                        - "{{ wait.trigger is not none }}"
+                      then:
+                        - stop: "Fenster-Zustand geändert, Erinnerungen beendet"
+                # Vor jedem Versand neu bewerten: Während des Wartens können sich
+                # Fenster, Schlafmodus, Pause und Geräte geändert haben
+                - variables:
+                    # "| lower": Enum-Sensoren melden Open/Tilted großgeschrieben
+                    same_phase: "{{ window_sensor is string and (states(window_sensor) | lower) in notify_states }}"
+                    sleep_now: "{{ sleep_mode_boolean is string and is_state(sleep_mode_boolean, 'on') }}"
+                    pause_now: >-
+                      {% set helpers = [pause_boolean] if pause_boolean is string else pause_boolean %}
+                      {% set pausing = 'on' if pause_mode == 'on_pauses' else 'off' %}
+                      {% set found = expand(helpers) | list %}
+                      {{ helpers | length > 0
+                         and found | length > 0
+                         and found | rejectattr('state', 'eq', pausing) | list | length == 0 }}
+                    devices_now: >
+                      {% set ns = namespace(device_names=[]) %}
+                      {% for device_id in notification_device %}
+                        {% set device_name = device_attr(device_id, "name") %}
+                        {% if device_name %}
+                          {% set ns.device_names = ns.device_names + ["mobile_app_" + device_name | slugify] %}
+                        {% endif %}
+                      {% endfor %}
+                      {{ ns.device_names }}
+                    minutes_open: "{{ (timeout_used + (repeat.index - 1) * notification_repeat_interval) | int }}"
+                    message_text: >-
+                      {%- if has_area -%}
+                        Das Fenster im Bereich '{{ window_label }}' ist seit über {{ minutes_open }} Minuten {{ state_word }}.
+                      {%- else -%}
+                        Fenster '{{ window_label }}' ist seit über {{ minutes_open }} Minuten {{ state_word }}.
+                      {%- endif -%}
+                - if:
+                    - "{{ not same_phase or (devices_now | length == 0 and notification_extra_services | length == 0) }}"
+                  then:
+                    - stop: "Fenster nicht mehr offen bzw. gekippt oder keine Empfänger, Erinnerungen beendet"
+                # Schlafmodus oder Pause: diese Erinnerung entfällt, zählt aber mit
+                - if:
+                    - "{{ not sleep_now and not pause_now }}"
+                  then:
+                    # Zusatz-Dienste je in einem eigenen Lauf (Event an diese Instanz):
+                    # continue_on_error fängt "Dienst nicht gefunden" nicht ab — ein
+                    # Tippfehler würde sonst den Versand an die übrigen Ziele und alle
+                    # weiteren Erinnerungen abbrechen. Vor den Geräten, damit auch ein
+                    # fehlerhaftes Gerät die Zusatz-Dienste nicht mitreißt
+                    - repeat:
+                        for_each: "{{ notification_extra_services }}"
+                        sequence:
+                          - event: s42_rollladen_zusatz_meldung
+                            event_data:
+                              cover: "{{ cover_entity }}"
+                              window: "{{ window_sensor }}"
+                              notify_service: "{{ repeat.item }}"
+                              title: "{{ title_text }}"
+                              message: "{{ message_text }}"
+                    - repeat:
+                        for_each: "{{ devices_now }}"
+                        sequence:
+                          # Ein einzelnes umbenanntes/entferntes Gerät darf den Versand an
+                          # die übrigen Geräte nicht abbrechen
+                          - action: "notify.{{ repeat.item }}"
+                            continue_on_error: true
+                            data:
+                              title: "{{ title_text }}"
+                              message: "{{ message_text }}"
+                              data:
+                                # Gleicher Tag pro Fenster: "gekippt" ersetzt eine ältere
+                                # "offen"-Meldung, eine Erinnerung die vorherige, und das
+                                # Schließen räumt sie wieder ab
+                                tag: "{{ notification_tag }}"
+                                actions:
+                                  - action: "{{ action_id }}"
+                                    title: Rollladen schließen
+
+      # --- BENACHRICHTIGUNG: VERSAND AN EINEN ZUSATZ-DIENST ---
+      - conditions:
+          - condition: trigger
+            id: notify_extra_target
+          # Nur selbst konfigurierte Ziele bedienen — das Event ist kein offener
+          # Versandkanal ("| string": ein reiner Ziffern-Name käme sonst als Zahl an)
+          - "{{ trigger.event.data.notify_service | default('') | string in notification_extra_services }}"
+        sequence:
+          # Titel und Text ohne Actions/Tag — fremde Dienste kennen diese Daten nicht
+          - if:
+              # Benachrichtigungs-Entität (neuere Integrationen) statt klassischem Dienst
+              - "{{ expand('notify.' ~ trigger.event.data.notify_service) | count > 0 }}"
+            then:
+              - action: notify.send_message
+                continue_on_error: true
+                target:
+                  entity_id: "notify.{{ trigger.event.data.notify_service }}"
+                data:
+                  title: "{{ trigger.event.data.title }}"
+                  message: "{{ trigger.event.data.message }}"
+            else:
+              - action: "notify.{{ trigger.event.data.notify_service }}"
+                continue_on_error: true
+                data:
+                  title: "{{ trigger.event.data.title }}"
+                  message: "{{ trigger.event.data.message }}"
 
       # --- FENSTER WIEDER ZU: BENACHRICHTIGUNG ABRÄUMEN + NACHT NACHHOLEN ---
       - conditions:
