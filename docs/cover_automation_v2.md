@@ -46,6 +46,8 @@ Jedes Feature darüber hinaus ist per Schalter zuschaltbar.
      Namensvorschlag: "Beschattung <Fenstername>".
    - Sonnenheizen: ein **weiterer** `input_boolean` pro Fenster (nicht denselben wie
      für den Sonnenschutz verwenden!).
+   - Diagnose (optional): ein Text-Helfer (`input_text`) **pro Fenster**, maximale
+     Länge am besten 255, Namensvorschlag: "Rollladen-Status <Fenstername>".
 4. Für Sonnenschutz/Sonnenheizen die **Fenstergeometrie** eintragen (Ausrichtung in
    Grad, Sichtfeld, Fensterhöhe, Brüstungshöhe) — Details unten.
 
@@ -67,6 +69,7 @@ Fenster, bis der Helfer gesetzt oder das Feature deaktiviert ist.
 | Moskito-Modus       | Schaltet beim Fensteröffnen nach Sonnenuntergang die Lichter im Raum aus (mit Ausnahmen)                                                                                 | Fenstersensor                                                        |
 | Benachrichtigungen  | Meldet zu lange offene/gekippte Fenster aufs Handy, mit "Rollladen schließen"-Button; verschwindet automatisch beim Schließen                                            | Companion-App-Geräte, Fenstersensor                                  |
 | Pausieren           | Hält die komplette Automation an, solange ein Helfer eingeschaltet ist — z.B. während Videoaufnahmen oder wenn Gäste schlafen                                            | `input_boolean`-Helfer (optional)                                    |
+| Diagnose            | Zeigt die letzte Aktion samt Grund, z. B. "21:30 Nachtmodus → 15 % (Fenster offen)"; optional zusätzlich im Logbuch                                                      | `input_text`-Helfer pro Fenster (optional)                           |
 
 **Prioritäten:** Der **Sturmschutz gewinnt immer** — bei Starkwind bewegen weder
 Morgens-Öffnen noch Beschattung, Sonnenheizen oder das Zurückfahren den Rollladen,
@@ -199,6 +202,59 @@ Wandtaster kam (die Positions-Rückmeldung kommt immer vom Gerät selbst). Ein
 neustartfest zu speichern — und genau darauf bauen das automatische Wiederöffnen,
 die Einmal-Logik des Sonnenheizens und die Eingriffs-Erkennung auf.
 
+### Diagnose: Warum steht der Rollladen so?
+
+Bei so vielen Features ist das die häufigste Frage. Die Antwort liefert ein
+optionaler Text-Helfer im Abschnitt "Diagnose": Nach jeder Fahrt, die die
+Automation auslöst, steht darin die letzte Aktion mit Uhrzeit und Grund — nach dem
+Muster `Uhrzeit Aktion → Ziel (Grund)`, zum Beispiel:
+
+- `07:00 Morgens → 100 %` — beim Sonnenaufgang, nach dem Ende des Nachtmodus oder
+  bei Bewegung mit Auslöser, z. B. `Morgens → 100 % (Sonnenaufgang)`,
+  `(Nachtmodus-Ende)` bzw. `(Bewegung)`
+- `21:30 Nachtmodus → zu (Fenster zu)` bzw. `21:30 Nachtmodus → 15 % (Fenster offen)`
+- `13:05 Beschattung → 35 %` und später `16:40 Beschattungs-Ende → 100 %`
+- `09:12 Fenster gekippt → 20 %`, nach dem Schließen `09:40 Zurückfahren → Ausgangsposition`
+- `14:02 Sturm → auf` (im Panzer-Modus `Sturm → zu (Panzer-Modus)`)
+- `Sonnenheizen → 100 %`, `Schließen erzwingen → zu (nach 30 Min.)`,
+  `Knopf Rollladen schließen → zu`, `Pause beendet → Nachtmodus nachgeholt`,
+  `Fenster zu → Nachtmodus nachgeholt`, `Moskito: 2 Lichter aus`
+- Begrenzt der Frostschutz eine Fahrt, steht das als Grund dabei, z. B.
+  `Morgens → 90 % (Frost)`, `Sturm → 90 % (Frost)` oder `Fenster offen → 90 % (Frost)`
+
+Zusätzlich werden die Fälle vermerkt, in denen eine erwartete Fahrt bewusst
+ausgelassen oder ersetzt wurde — sie geben sonst am meisten Rätsel auf:
+
+- `07:00 Morgens öffnen übersprungen (Sturm)` — beim Öffnen per Bewegung nicht, sonst
+  käme bei jeder Bewegung ein neuer Eintrag dazu, solange der Sturm anhält.
+- `14:02 Sturmschutz übersprungen (Fenster offen)` — das Fenster war offen und
+  "Aktion bei Sturm erzwingen" ist aus.
+- `09:40 Zurückfahren → zu (Nachtmodus)` — während des Lüftens kam der Nachtmodus,
+  statt der Ausgangsposition wird geschlossen.
+- `09:40 Zurückfahren übersprungen (Sturm)` bzw. `(Pause)` oder
+  `(keine gemerkte Position)` — Letzteres, wenn die beim Öffnen gemerkte Position
+  fehlt (gemerkte Positionen überleben keinen Neustart von Home Assistant) oder das
+  Morgens-Öffnen sie verworfen hat.
+
+Meldet der Fenstersensor beim Nachtmodus oder Sturm gerade keinen gültigen Zustand
+(z. B. `unavailable`), steht als Grund `(Fensterstatus unbekannt)`. Ohne
+Fenstersensor entfällt der Fenster-Grund, z. B. `21:30 Nachtmodus → zu`.
+
+**Einrichten:** Unter _Einstellungen → Geräte & Dienste → Helfer_ einen Helfer vom
+Typ "Text" anlegen — einen **pro Fenster**, sonst überschreiben sich die Instanzen
+gegenseitig. Die maximale Länge am besten auf 255 setzen (Standard: 100 Zeichen) —
+die Texte sind zwar meist deutlich kürzer, zu lange würden aber abgeschnitten.
+Den Helfer dann in der Instanz unter "Diagnose" auswählen und z. B. als
+Entitäts-Karte neben den Rollladen ins Dashboard legen. Den Verlauf der letzten
+Aktionen zeigt schon der Verlauf des Helfers selbst.
+
+**Logbuch:** Mit "Zusätzlich ins Logbuch schreiben" erscheint jede Aktion außerdem
+als Eintrag im Logbuch des Rollladens (Name = Name des Rollladens) — so steht der
+Grund direkt neben den Zustandswechseln. Das funktioniert auch ohne Text-Helfer,
+setzt aber die Logbuch-Integration voraus (bei Standard-Installationen über
+`default_config` immer vorhanden). Die Diagnose ist rein informativ: Ein fehlender
+oder falsch konfigurierter Text-Helfer bringt die Steuerung nie aus dem Tritt.
+
 ## Bekannte Grenzen
 
 - **Wind-Sensor kurz nicht verfügbar** zählt als "windstill". Bewusste Entscheidung:
@@ -219,6 +275,25 @@ die Einmal-Logik des Sonnenheizens und die Eingriffs-Erkennung auf.
   betreten, öffnet er erneut. Wer das nicht will, nutzt den Pausier-Helfer.
 - **Frostschutz** begrenzt die automatischen Fahrten, nicht das Zurückfahren auf eine
   gemerkte Ausgangsposition nach dem Lüften (die war ja bereits erreicht).
+- **Diagnose zeigt nur, was diese Automation tut:** Fahrten per Wandtaster, App oder
+  anderer Automation erscheinen nicht — der Text bleibt dann auf der letzten
+  Automatik-Aktion stehen. Auch nicht jede ausgelassene Fahrt wird vermerkt, sondern
+  nur die oben genannten. Unverändert bleibt der Text z. B., wenn der Rollladen schon
+  passend steht, wenn die Beschattung nach einem manuellen Eingriff ruht (sonst würde
+  er alle 5 Minuten überschrieben) und bei Ereignissen während einer Pause —
+  Ausnahmen sind, was auch in der Pause wirkt: Sturmschutz, der "Rollladen
+  schließen"-Knopf und das ausgelassene Zurückfahren nach dem Lüften. Das Nachführen
+  der Beschattung schreibt dagegen bei jeder Bewegung — mit Logbuch-Option also
+  entsprechend viele Einträge.
+- **Moskito-Modus und Fensteröffnen gleichzeitig:** Öffnest du das Fenster nach
+  Sonnenuntergang, laufen die Rollladen-Fahrt und das Ausschalten der Lichter
+  parallel. Im Text-Helfer steht danach der Eintrag, der zuletzt fertig war — das
+  Logbuch zeigt beide.
+- **Fenster nachts innerhalb der Rückfahrzeit geschlossen:** Dann holen sowohl das
+  Zurückfahren als auch das Fenster-Schließen den Nachtmodus nach — beide kommen zum
+  selben Ergebnis, schreiben aber jeweils einen Status. Im Text-Helfer steht danach
+  zufällig einer der beiden Texte (`Zurückfahren → zu (Nachtmodus)` oder
+  `Fenster zu → Nachtmodus nachgeholt`), das Logbuch zeigt beide Einträge.
 
 ## FAQ
 
@@ -226,6 +301,14 @@ die Einmal-Logik des Sonnenheizens und die Eingriffs-Erkennung auf.
 Repository-URL statt der Blueprint-URL importiert. Richtig ist die Datei-URL:
 `https://github.com/TheRealSimon42/ha-blueprints/blob/main/automations/cover_automation_v2.yaml`
 — am einfachsten über den Import-Button oben.
+
+**Warum steht der Rollladen so?** Am schnellsten beantwortet das der optionale
+Status-Text-Helfer im Abschnitt "Diagnose" (siehe
+[oben](#diagnose-warum-steht-der-rollladen-so)): Er zeigt die letzte Aktion der
+Automation samt Uhrzeit und Grund, auch wenn sie eine Fahrt bewusst ausgelassen
+hat. Passt die aktuelle Position nicht zu diesem Text, wurde der Rollladen danach
+von Hand oder von etwas anderem bewegt (Ausnahme: ein Moskito-Eintrag, siehe
+Bekannte Grenzen).
 
 **Was bedeuten 0 % und 100 % bei den Positionen?** Das Blueprint folgt der
 Home-Assistant-Konvention: 100 % = ganz offen, 0 % = ganz geschlossen. Die Prozente

@@ -933,6 +933,41 @@ blueprint:
           selector:
             entity:
               domain: input_boolean
+    diagnosis_section:
+      name: Diagnose
+      description: >
+        Beantwortet die häufigste Frage: "Warum steht der Rollladen so?" Nach jeder
+        Fahrt, die diese Automation auslöst, wird die letzte Aktion samt Grund
+        festgehalten — z.B. "21:30 Nachtmodus → 15 % (Fenster offen)". Auch die
+        wichtigsten bewusst ausgelassenen Fahrten werden vermerkt, z.B. "07:00
+        Morgens öffnen übersprungen (Sturm)". Rein informativ: Am Verhalten der
+        Steuerung ändert sich dadurch nichts.
+      icon: mdi:information-outline
+      collapsed: true
+      input:
+        status_helper:
+          name: Status-Text-Helfer (input_text, optional)
+          description: >
+            Ein Text-Helfer (input_text) NUR für dieses Fenster. Darin steht
+            jederzeit die letzte Aktion mit Uhrzeit und Grund — ideal für eine
+            Dashboard-Karte. Empfohlen: beim Anlegen die maximale Länge auf 255
+            setzen (Standard sind 100 Zeichen, längere Texte werden gekürzt).
+            Leer lassen = kein Status-Text (bisheriges Verhalten).
+          default: []
+          selector:
+            entity:
+              domain: input_text
+        status_logbook:
+          name: Zusätzlich ins Logbuch schreiben
+          description: >
+            Schreibt jede Aktion zusätzlich als Eintrag ins Logbuch des Rollladens —
+            so lässt sich auch der Verlauf nachvollziehen, nicht nur die letzte
+            Aktion. Funktioniert auch ohne Status-Text-Helfer, setzt aber die
+            Logbuch-Integration voraus (bei Standard-Installationen immer
+            vorhanden). Aus = keine Logbuch-Einträge (bisheriges Verhalten).
+          default: false
+          selector:
+            boolean: {}
 
 mode: parallel
 max: 20
@@ -1012,6 +1047,7 @@ variables:
   notification_timeout: !input notification_timeout
   notification_timeout_tilted: !input notification_timeout_tilted
   notification_device: !input notification_device
+  status_helper: !input status_helper
   action_id: "{{ 'CLOSE_SHUTTER__' ~ window_sensor }}"
   notification_tag: "{{ 'fenster_offen_' ~ (window_sensor | slugify) }}"
   device_name_map: >
@@ -1254,6 +1290,36 @@ actions:
                 {% else %}
                   {{ morning_position | int(100) }}
                 {% endif %}
+          # Nicht bei Bewegung: Sonst würde der Vermerk bei jeder Bewegung im
+          # Raum neu geschrieben, solange der Sturm anhält (Logbuch-Flut)
+          - if:
+              - "{{ storm_enabled and (wind_now | float(0)) >= wind_speed_threshold }}"
+              - "{{ trigger.id != 'morning_motion' }}"
+            then:
+              # Diagnose (optional): letzte Aktion samt Grund in den Text-Helfer
+              # (auf dessen Max-Länge gekürzt) und/oder ins Logbuch schreiben.
+              # Dieser Block steht gleich nach jeder Fahrt und jeder bewusst
+              # ausgelassenen Fahrt; continue_on_error, damit ein fehlender oder
+              # falsch konfigurierter Helfer die Automation nie abbricht (die
+              # Logbuch-Option setzt die Logbuch-Integration voraus)
+              - variables:
+                  status_text: "Morgens öffnen übersprungen (Sturm)"
+              - if:
+                  - "{{ status_helper is string }}"
+                then:
+                  - action: input_text.set_value
+                    continue_on_error: true
+                    target:
+                      entity_id: "{{ status_helper }}"
+                    data:
+                      value: "{{ (now().strftime('%H:%M ') ~ status_text)[:state_attr(status_helper, 'max') | int(100)] }}"
+              - action: logbook.log
+                enabled: !input status_logbook
+                continue_on_error: true
+                data:
+                  name: "{{ state_attr(cover_entity, 'friendly_name') or cover_entity }}"
+                  entity_id: "{{ cover_entity }}"
+                  message: "{{ status_text }}"
           - condition: "{{ not storm_enabled or (wind_now | float(0)) < wind_speed_threshold }}"
           - choose:
               - conditions:
@@ -1265,6 +1331,33 @@ actions:
                       entity_id: !input cover
                     data:
                       position: "{{ morning_target }}"
+                  # Grund: Auslöser (Uhrzeit = ohne Zusatz) und ggf. die
+                  # Frost-Begrenzung unter die eingestellte Zielposition
+                  - variables:
+                      status_text: >-
+                        {%- set reason = {'morning_open_sun': 'Sonnenaufgang',
+                                          'morning_open_night_end': 'Nachtmodus-Ende',
+                                          'morning_motion': 'Bewegung'}.get(trigger.id, '') -%}
+                        {%- if morning_target | int(100) < morning_position | int(100) -%}
+                          {%- set reason = (reason ~ ', ' if reason else '') ~ 'Frost' -%}
+                        {%- endif -%}
+                        Morgens → {{ morning_target | int }} %{{ ' (' ~ reason ~ ')' if reason else '' }}
+                  - if:
+                      - "{{ status_helper is string }}"
+                    then:
+                      - action: input_text.set_value
+                        continue_on_error: true
+                        target:
+                          entity_id: "{{ status_helper }}"
+                        data:
+                          value: "{{ (now().strftime('%H:%M ') ~ status_text)[:state_attr(status_helper, 'max') | int(100)] }}"
+                  - action: logbook.log
+                    enabled: !input status_logbook
+                    continue_on_error: true
+                    data:
+                      name: "{{ state_attr(cover_entity, 'friendly_name') or cover_entity }}"
+                      entity_id: "{{ cover_entity }}"
+                      message: "{{ status_text }}"
               # Fallback für Cover ohne Positions-Attribut
               - conditions:
                   - "{{ state_attr(cover_entity, 'current_position') is none }}"
@@ -1272,6 +1365,28 @@ actions:
                   - action: cover.open_cover
                     target:
                       entity_id: !input cover
+                  - variables:
+                      status_text: >-
+                        {%- set reason = {'morning_open_sun': 'Sonnenaufgang',
+                                          'morning_open_night_end': 'Nachtmodus-Ende',
+                                          'morning_motion': 'Bewegung'}.get(trigger.id, '') -%}
+                        Morgens → auf{{ ' (' ~ reason ~ ')' if reason else '' }}
+                  - if:
+                      - "{{ status_helper is string }}"
+                    then:
+                      - action: input_text.set_value
+                        continue_on_error: true
+                        target:
+                          entity_id: "{{ status_helper }}"
+                        data:
+                          value: "{{ (now().strftime('%H:%M ') ~ status_text)[:state_attr(status_helper, 'max') | int(100)] }}"
+                  - action: logbook.log
+                    enabled: !input status_logbook
+                    continue_on_error: true
+                    data:
+                      name: "{{ state_attr(cover_entity, 'friendly_name') or cover_entity }}"
+                      entity_id: "{{ cover_entity }}"
+                      message: "{{ status_text }}"
           # Ein Lüftungs-Snapshot aus der Nacht ist ab jetzt veraltet: Ohne
           # diese Bereinigung würde das Fenster-Zurückfahren den Rollladen
           # nach dem Schließen wieder auf die alte Nacht-Position ziehen
@@ -1323,6 +1438,26 @@ actions:
                       entity_id: !input cover
                     data:
                       position: !input tilted_position
+                  - variables:
+                      status_text: >-
+                        Nachtmodus → {{ tilted_position | int }} %
+                        (Fenster {{ 'gekippt' if (states(window_sensor) | lower) == 'tilted' else 'offen, wie gekippt' }})
+                  - if:
+                      - "{{ status_helper is string }}"
+                    then:
+                      - action: input_text.set_value
+                        continue_on_error: true
+                        target:
+                          entity_id: "{{ status_helper }}"
+                        data:
+                          value: "{{ (now().strftime('%H:%M ') ~ status_text)[:state_attr(status_helper, 'max') | int(100)] }}"
+                  - action: logbook.log
+                    enabled: !input status_logbook
+                    continue_on_error: true
+                    data:
+                      name: "{{ state_attr(cover_entity, 'friendly_name') or cover_entity }}"
+                      entity_id: "{{ cover_entity }}"
+                      message: "{{ status_text }}"
               - conditions:
                   - "{{ window_sensor is string and (states(window_sensor) | lower) in ['on', 'open'] }}"
                 sequence:
@@ -1331,6 +1466,24 @@ actions:
                       entity_id: !input cover
                     data:
                       position: !input night_ventilation_position
+                  - variables:
+                      status_text: "Nachtmodus → {{ night_ventilation_position | int }} % (Fenster offen)"
+                  - if:
+                      - "{{ status_helper is string }}"
+                    then:
+                      - action: input_text.set_value
+                        continue_on_error: true
+                        target:
+                          entity_id: "{{ status_helper }}"
+                        data:
+                          value: "{{ (now().strftime('%H:%M ') ~ status_text)[:state_attr(status_helper, 'max') | int(100)] }}"
+                  - action: logbook.log
+                    enabled: !input status_logbook
+                    continue_on_error: true
+                    data:
+                      name: "{{ state_attr(cover_entity, 'friendly_name') or cover_entity }}"
+                      entity_id: "{{ cover_entity }}"
+                      message: "{{ status_text }}"
             default:
               # Nacht-Zielposition über 0 braucht Positionsangaben —
               # sonst (und beim Standard 0) wird komplett geschlossen
@@ -1346,6 +1499,31 @@ actions:
                   - action: cover.close_cover
                     target:
                       entity_id: !input cover
+              # Ohne Fenstersensor entfällt der Fenster-Grund
+              - variables:
+                  status_text: >-
+                    Nachtmodus → {{ night_position | int ~ ' %'
+                                    if night_position | int(0) > 0 and state_attr(cover_entity, 'current_position') is not none
+                                    else 'zu' }}
+                    {{- '' if window_sensor is not string
+                        else ' (Fenster zu)' if (states(window_sensor) | lower) in ['off', 'closed']
+                        else ' (Fensterstatus unbekannt)' }}
+              - if:
+                  - "{{ status_helper is string }}"
+                then:
+                  - action: input_text.set_value
+                    continue_on_error: true
+                    target:
+                      entity_id: "{{ status_helper }}"
+                    data:
+                      value: "{{ (now().strftime('%H:%M ') ~ status_text)[:state_attr(status_helper, 'max') | int(100)] }}"
+              - action: logbook.log
+                enabled: !input status_logbook
+                continue_on_error: true
+                data:
+                  name: "{{ state_attr(cover_entity, 'friendly_name') or cover_entity }}"
+                  entity_id: "{{ cover_entity }}"
+                  message: "{{ status_text }}"
 
       # --- STURMSCHUTZ ---
       - conditions:
@@ -1386,6 +1564,61 @@ actions:
               - action: cover.close_cover
                 target:
                   entity_id: !input cover
+          - variables:
+              status_text: >-
+                {%- if panzer_mode -%}
+                  Sturm → zu (Panzer-Modus)
+                {%- elif frost_active and state_attr(cover_entity, 'current_position') is not none -%}
+                  Sturm → {{ frost_max_position | int }} % (Frost)
+                {%- else -%}
+                  Sturm → auf
+                {%- endif -%}
+          - if:
+              - "{{ status_helper is string }}"
+            then:
+              - action: input_text.set_value
+                continue_on_error: true
+                target:
+                  entity_id: "{{ status_helper }}"
+                data:
+                  value: "{{ (now().strftime('%H:%M ') ~ status_text)[:state_attr(status_helper, 'max') | int(100)] }}"
+          - action: logbook.log
+            enabled: !input status_logbook
+            continue_on_error: true
+            data:
+              name: "{{ state_attr(cover_entity, 'friendly_name') or cover_entity }}"
+              entity_id: "{{ cover_entity }}"
+              message: "{{ status_text }}"
+
+      # --- STURMSCHUTZ ÜBERSPRUNGEN (nur Diagnose) ---
+      # Greift nur, wenn die Option davor nicht passte: Fenster nicht zu und
+      # "Aktion bei Sturm erzwingen" aus — bewegt nichts, vermerkt nur den Grund
+      - conditions:
+          - condition: trigger
+            id: storm_detected
+        sequence:
+          - variables:
+              status_text: >-
+                Sturmschutz übersprungen
+                ({{ 'Fenster gekippt' if (states(window_sensor) | lower) == 'tilted'
+                    else 'Fenster offen' if (states(window_sensor) | lower) in ['on', 'open']
+                    else 'Fensterstatus unbekannt' }})
+          - if:
+              - "{{ status_helper is string }}"
+            then:
+              - action: input_text.set_value
+                continue_on_error: true
+                target:
+                  entity_id: "{{ status_helper }}"
+                data:
+                  value: "{{ (now().strftime('%H:%M ') ~ status_text)[:state_attr(status_helper, 'max') | int(100)] }}"
+          - action: logbook.log
+            enabled: !input status_logbook
+            continue_on_error: true
+            data:
+              name: "{{ state_attr(cover_entity, 'friendly_name') or cover_entity }}"
+              entity_id: "{{ cover_entity }}"
+              message: "{{ status_text }}"
 
       # --- PAUSE BEENDET: ZUSTAND NACHHOLEN ---
       - conditions:
@@ -1461,6 +1694,24 @@ actions:
                       - action: cover.close_cover
                         target:
                           entity_id: !input cover
+              - variables:
+                  status_text: "Pause beendet → Nachtmodus nachgeholt"
+              - if:
+                  - "{{ status_helper is string }}"
+                then:
+                  - action: input_text.set_value
+                    continue_on_error: true
+                    target:
+                      entity_id: "{{ status_helper }}"
+                    data:
+                      value: "{{ (now().strftime('%H:%M ') ~ status_text)[:state_attr(status_helper, 'max') | int(100)] }}"
+              - action: logbook.log
+                enabled: !input status_logbook
+                continue_on_error: true
+                data:
+                  name: "{{ state_attr(cover_entity, 'friendly_name') or cover_entity }}"
+                  entity_id: "{{ cover_entity }}"
+                  message: "{{ status_text }}"
 
       # --- SONNENSCHUTZ ---
       - conditions:
@@ -1606,6 +1857,24 @@ actions:
                               entity_id: !input cover
                             data:
                               position: "{{ target_position }}"
+                          - variables:
+                              status_text: "Beschattung → {{ target_position | int }} %"
+                          - if:
+                              - "{{ status_helper is string }}"
+                            then:
+                              - action: input_text.set_value
+                                continue_on_error: true
+                                target:
+                                  entity_id: "{{ status_helper }}"
+                                data:
+                                  value: "{{ (now().strftime('%H:%M ') ~ status_text)[:state_attr(status_helper, 'max') | int(100)] }}"
+                          - action: logbook.log
+                            enabled: !input status_logbook
+                            continue_on_error: true
+                            data:
+                              name: "{{ state_attr(cover_entity, 'friendly_name') or cover_entity }}"
+                              entity_id: "{{ cover_entity }}"
+                              message: "{{ status_text }}"
                     else:
                       # Beschattung beginnt: Anfangsbewegung immer ausführen
                       - action: input_boolean.turn_on
@@ -1619,6 +1888,24 @@ actions:
                               entity_id: !input cover
                             data:
                               position: "{{ target_position }}"
+                          - variables:
+                              status_text: "Beschattung → {{ target_position | int }} %"
+                          - if:
+                              - "{{ status_helper is string }}"
+                            then:
+                              - action: input_text.set_value
+                                continue_on_error: true
+                                target:
+                                  entity_id: "{{ status_helper }}"
+                                data:
+                                  value: "{{ (now().strftime('%H:%M ') ~ status_text)[:state_attr(status_helper, 'max') | int(100)] }}"
+                          - action: logbook.log
+                            enabled: !input status_logbook
+                            continue_on_error: true
+                            data:
+                              name: "{{ state_attr(cover_entity, 'friendly_name') or cover_entity }}"
+                              entity_id: "{{ cover_entity }}"
+                              message: "{{ status_text }}"
               # Beschattung beenden
               - conditions:
                   - "{{ is_state(shading_status_helper, 'on') }}"
@@ -1637,6 +1924,24 @@ actions:
                       entity_id: !input cover
                     data:
                       position: !input shading_end_position
+                  - variables:
+                      status_text: "Beschattungs-Ende → {{ shading_end_position | int }} %"
+                  - if:
+                      - "{{ status_helper is string }}"
+                    then:
+                      - action: input_text.set_value
+                        continue_on_error: true
+                        target:
+                          entity_id: "{{ status_helper }}"
+                        data:
+                          value: "{{ (now().strftime('%H:%M ') ~ status_text)[:state_attr(status_helper, 'max') | int(100)] }}"
+                  - action: logbook.log
+                    enabled: !input status_logbook
+                    continue_on_error: true
+                    data:
+                      name: "{{ state_attr(cover_entity, 'friendly_name') or cover_entity }}"
+                      entity_id: "{{ cover_entity }}"
+                      message: "{{ status_text }}"
 
       # --- SONNENHEIZEN (Winter) ---
       - conditions:
@@ -1726,6 +2031,29 @@ actions:
                         {% else %}
                           {{ solar_heating_position | int(100) }}
                         {% endif %}
+                  - variables:
+                      status_text: >-
+                        {%- if frost_active and frost_max_position | int(100) < solar_heating_position | int(100) -%}
+                          Sonnenheizen → {{ frost_max_position | int }} % (Frost)
+                        {%- else -%}
+                          Sonnenheizen → {{ solar_heating_position | int }} %
+                        {%- endif -%}
+                  - if:
+                      - "{{ status_helper is string }}"
+                    then:
+                      - action: input_text.set_value
+                        continue_on_error: true
+                        target:
+                          entity_id: "{{ status_helper }}"
+                        data:
+                          value: "{{ (now().strftime('%H:%M ') ~ status_text)[:state_attr(status_helper, 'max') | int(100)] }}"
+                  - action: logbook.log
+                    enabled: !input status_logbook
+                    continue_on_error: true
+                    data:
+                      name: "{{ state_attr(cover_entity, 'friendly_name') or cover_entity }}"
+                      entity_id: "{{ cover_entity }}"
+                      message: "{{ status_text }}"
               # Sonnenheizen beenden: nur Status zurücksetzen, kein erzwungenes Schließen —
               # der Rollladen bleibt offen, bis Nachtmodus/Fenster-Interaktion ihn regulär bewegen
               - conditions:
@@ -1768,6 +2096,26 @@ actions:
           - action: light.turn_off
             target:
               entity_id: "{{ lights_to_turn_off }}"
+          - variables:
+              status_text: >-
+                Moskito: {{ lights_to_turn_off | length }}
+                {{ 'Licht' if lights_to_turn_off | length == 1 else 'Lichter' }} aus
+          - if:
+              - "{{ status_helper is string }}"
+            then:
+              - action: input_text.set_value
+                continue_on_error: true
+                target:
+                  entity_id: "{{ status_helper }}"
+                data:
+                  value: "{{ (now().strftime('%H:%M ') ~ status_text)[:state_attr(status_helper, 'max') | int(100)] }}"
+          - action: logbook.log
+            enabled: !input status_logbook
+            continue_on_error: true
+            data:
+              name: "{{ state_attr(cover_entity, 'friendly_name') or cover_entity }}"
+              entity_id: "{{ cover_entity }}"
+              message: "{{ status_text }}"
 
       # --- BENACHRICHTIGUNG: FENSTER LANGE OFFEN/GEKIPPT ---
       - conditions:
@@ -1874,6 +2222,24 @@ actions:
                   - action: cover.close_cover
                     target:
                       entity_id: !input cover
+              - variables:
+                  status_text: "Fenster zu → Nachtmodus nachgeholt"
+              - if:
+                  - "{{ status_helper is string }}"
+                then:
+                  - action: input_text.set_value
+                    continue_on_error: true
+                    target:
+                      entity_id: "{{ status_helper }}"
+                    data:
+                      value: "{{ (now().strftime('%H:%M ') ~ status_text)[:state_attr(status_helper, 'max') | int(100)] }}"
+              - action: logbook.log
+                enabled: !input status_logbook
+                continue_on_error: true
+                data:
+                  name: "{{ state_attr(cover_entity, 'friendly_name') or cover_entity }}"
+                  entity_id: "{{ cover_entity }}"
+                  message: "{{ status_text }}"
 
       # --- NOTIFICATION-ACTION: ROLLLADEN SCHLIESSEN ---
       - conditions:
@@ -1884,6 +2250,24 @@ actions:
           - action: cover.close_cover
             target:
               entity_id: !input cover
+          - variables:
+              status_text: "Knopf Rollladen schließen → zu"
+          - if:
+              - "{{ status_helper is string }}"
+            then:
+              - action: input_text.set_value
+                continue_on_error: true
+                target:
+                  entity_id: "{{ status_helper }}"
+                data:
+                  value: "{{ (now().strftime('%H:%M ') ~ status_text)[:state_attr(status_helper, 'max') | int(100)] }}"
+          - action: logbook.log
+            enabled: !input status_logbook
+            continue_on_error: true
+            data:
+              name: "{{ state_attr(cover_entity, 'friendly_name') or cover_entity }}"
+              entity_id: "{{ cover_entity }}"
+              message: "{{ status_text }}"
 
       # --- FENSTER-INTERAKTION (KIPPEN/ÖFFNEN + ZURÜCKFAHREN) ---
       - conditions:
@@ -1922,6 +2306,29 @@ actions:
                       entity_id: !input cover
                     data:
                       position: !input tilted_position
+                  - variables:
+                      status_text: >-
+                        {%- if (trigger.to_state.state | lower) == 'tilted' -%}
+                          Fenster gekippt → {{ tilted_position | int }} %
+                        {%- else -%}
+                          Fenster offen → {{ tilted_position | int }} % (wie gekippt)
+                        {%- endif -%}
+                  - if:
+                      - "{{ status_helper is string }}"
+                    then:
+                      - action: input_text.set_value
+                        continue_on_error: true
+                        target:
+                          entity_id: "{{ status_helper }}"
+                        data:
+                          value: "{{ (now().strftime('%H:%M ') ~ status_text)[:state_attr(status_helper, 'max') | int(100)] }}"
+                  - action: logbook.log
+                    enabled: !input status_logbook
+                    continue_on_error: true
+                    data:
+                      name: "{{ state_attr(cover_entity, 'friendly_name') or cover_entity }}"
+                      entity_id: "{{ cover_entity }}"
+                      message: "{{ status_text }}"
               - conditions:
                   - "{{ (trigger.to_state.state | lower) in ['on', 'open'] }}"
                   - "{{ not treat_open_as_tilted }}"
@@ -1941,10 +2348,46 @@ actions:
                               entity_id: !input cover
                             data:
                               position: !input frost_max_position
+                          - variables:
+                              status_text: "Fenster offen → {{ frost_max_position | int }} % (Frost)"
+                          - if:
+                              - "{{ status_helper is string }}"
+                            then:
+                              - action: input_text.set_value
+                                continue_on_error: true
+                                target:
+                                  entity_id: "{{ status_helper }}"
+                                data:
+                                  value: "{{ (now().strftime('%H:%M ') ~ status_text)[:state_attr(status_helper, 'max') | int(100)] }}"
+                          - action: logbook.log
+                            enabled: !input status_logbook
+                            continue_on_error: true
+                            data:
+                              name: "{{ state_attr(cover_entity, 'friendly_name') or cover_entity }}"
+                              entity_id: "{{ cover_entity }}"
+                              message: "{{ status_text }}"
                     else:
                       - action: cover.open_cover
                         target:
                           entity_id: !input cover
+                      - variables:
+                          status_text: "Fenster offen → auf"
+                      - if:
+                          - "{{ status_helper is string }}"
+                        then:
+                          - action: input_text.set_value
+                            continue_on_error: true
+                            target:
+                              entity_id: "{{ status_helper }}"
+                            data:
+                              value: "{{ (now().strftime('%H:%M ') ~ status_text)[:state_attr(status_helper, 'max') | int(100)] }}"
+                      - action: logbook.log
+                        enabled: !input status_logbook
+                        continue_on_error: true
+                        data:
+                          name: "{{ state_attr(cover_entity, 'friendly_name') or cover_entity }}"
+                          entity_id: "{{ cover_entity }}"
+                          message: "{{ status_text }}"
                   # Beschattungs-Status freigeben: Das Öffnen fürs Lüften ist kein
                   # manueller Eingriff — nach dem Schließen (oder Timeout) darf der
                   # nächste Tick wieder beschatten, statt bis Tagesende zu pausieren
@@ -1966,6 +2409,24 @@ actions:
                       entity_id: !input cover
                     data:
                       position: !input night_ventilation_position
+                  - variables:
+                      status_text: "Fenster offen → {{ night_ventilation_position | int }} % (Nachtmodus)"
+                  - if:
+                      - "{{ status_helper is string }}"
+                    then:
+                      - action: input_text.set_value
+                        continue_on_error: true
+                        target:
+                          entity_id: "{{ status_helper }}"
+                        data:
+                          value: "{{ (now().strftime('%H:%M ') ~ status_text)[:state_attr(status_helper, 'max') | int(100)] }}"
+                  - action: logbook.log
+                    enabled: !input status_logbook
+                    continue_on_error: true
+                    data:
+                      name: "{{ state_attr(cover_entity, 'friendly_name') or cover_entity }}"
+                      entity_id: "{{ cover_entity }}"
+                      message: "{{ status_text }}"
           - wait_for_trigger:
               - trigger: state
                 entity_id: !input window_sensor
@@ -2009,6 +2470,24 @@ actions:
                   - action: cover.close_cover
                     target:
                       entity_id: !input cover
+                  - variables:
+                      status_text: "Schließen erzwingen → zu (nach {{ reclose_timeout | int }} Min.)"
+                  - if:
+                      - "{{ status_helper is string }}"
+                    then:
+                      - action: input_text.set_value
+                        continue_on_error: true
+                        target:
+                          entity_id: "{{ status_helper }}"
+                        data:
+                          value: "{{ (now().strftime('%H:%M ') ~ status_text)[:state_attr(status_helper, 'max') | int(100)] }}"
+                  - action: logbook.log
+                    enabled: !input status_logbook
+                    continue_on_error: true
+                    data:
+                      name: "{{ state_attr(cover_entity, 'friendly_name') or cover_entity }}"
+                      entity_id: "{{ cover_entity }}"
+                      message: "{{ status_text }}"
             else:
               - choose:
                   # Fenster zu + Nachtmodus inzwischen aktiv → schließen statt restaurieren
@@ -2028,6 +2507,27 @@ actions:
                           - action: cover.close_cover
                             target:
                               entity_id: !input cover
+                      - variables:
+                          status_text: >-
+                            Zurückfahren → {{ night_position | int ~ ' %'
+                                              if night_position | int(0) > 0 and state_attr(cover_entity, 'current_position') is not none
+                                              else 'zu' }} (Nachtmodus)
+                      - if:
+                          - "{{ status_helper is string }}"
+                        then:
+                          - action: input_text.set_value
+                            continue_on_error: true
+                            target:
+                              entity_id: "{{ status_helper }}"
+                            data:
+                              value: "{{ (now().strftime('%H:%M ') ~ status_text)[:state_attr(status_helper, 'max') | int(100)] }}"
+                      - action: logbook.log
+                        enabled: !input status_logbook
+                        continue_on_error: true
+                        data:
+                          name: "{{ state_attr(cover_entity, 'friendly_name') or cover_entity }}"
+                          entity_id: "{{ cover_entity }}"
+                          message: "{{ status_text }}"
                   # Normalfall: Ausgangsposition wiederherstellen (nur wenn der
                   # Snapshot existiert, kein Sturm aktiv ist und keine Pause läuft).
                   # Existenz via expand
@@ -2042,6 +2542,24 @@ actions:
                       - action: scene.turn_on
                         target:
                           entity_id: "{{ reclose_scene }}"
+                      - variables:
+                          status_text: "Zurückfahren → Ausgangsposition"
+                      - if:
+                          - "{{ status_helper is string }}"
+                        then:
+                          - action: input_text.set_value
+                            continue_on_error: true
+                            target:
+                              entity_id: "{{ status_helper }}"
+                            data:
+                              value: "{{ (now().strftime('%H:%M ') ~ status_text)[:state_attr(status_helper, 'max') | int(100)] }}"
+                      - action: logbook.log
+                        enabled: !input status_logbook
+                        continue_on_error: true
+                        data:
+                          name: "{{ state_attr(cover_entity, 'friendly_name') or cover_entity }}"
+                          entity_id: "{{ cover_entity }}"
+                          message: "{{ status_text }}"
                       # Restore ist eine Fremdbewegung: Beschattungs-Status freigeben,
                       # damit der nächste Tick bei Bedarf frisch beschattet, statt die
                       # Abweichung als manuellen Eingriff bis Tagesende zu sperren
@@ -2051,3 +2569,25 @@ actions:
                           - action: input_boolean.turn_off
                             target:
                               entity_id: "{{ shading_status_helper }}"
+                # Nur Diagnose: Zurückfahren bewusst ausgelassen (bewegt nichts)
+                default:
+                  - variables:
+                      status_text: >-
+                        Zurückfahren übersprungen
+                        ({{ 'Sturm' if storm_now else 'Pause' if pause_now else 'keine gemerkte Position' }})
+                  - if:
+                      - "{{ status_helper is string }}"
+                    then:
+                      - action: input_text.set_value
+                        continue_on_error: true
+                        target:
+                          entity_id: "{{ status_helper }}"
+                        data:
+                          value: "{{ (now().strftime('%H:%M ') ~ status_text)[:state_attr(status_helper, 'max') | int(100)] }}"
+                  - action: logbook.log
+                    enabled: !input status_logbook
+                    continue_on_error: true
+                    data:
+                      name: "{{ state_attr(cover_entity, 'friendly_name') or cover_entity }}"
+                      entity_id: "{{ cover_entity }}"
+                      message: "{{ status_text }}"
