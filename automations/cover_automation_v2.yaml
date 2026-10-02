@@ -143,6 +143,26 @@ blueprint:
               step: 1
               mode: slider
               unit_of_measurement: "%"
+        morning_random_delay:
+          name: Zufällige Verzögerung (max.)
+          description: >
+            Der Rollladen fährt zufällig zwischen 0 und dieser Anzahl Minuten
+            später hoch als eingestellt — nur später, nie früher. Gilt für
+            Uhrzeit, Sonnenaufgang und das Ende des Nachtmodus; das Öffnen bei
+            Bewegung reagiert immer sofort. Wirkt bei Abwesenheit bewohnt
+            (Anwesenheitssimulation), und mehrere Rollläden fahren nicht exakt
+            gleichzeitig. Pause, Nachtmodus, Sturm und Beschattung werden nach
+            der Wartezeit neu geprüft. 0 = sofort (bisheriges Verhalten).
+            Hinweis: Startet Home Assistant während der Wartezeit neu, entfällt
+            das Öffnen an diesem Tag.
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 60
+              step: 1
+              mode: slider
+              unit_of_measurement: Minuten
     window_interaction_section:
       name: Fenster-Interaktion
       description: Wie der Rollladen auf geöffnete oder gekippte Fenster reagiert.
@@ -721,6 +741,26 @@ blueprint:
               step: 1
               mode: slider
               unit_of_measurement: "%"
+        night_random_delay:
+          name: Zufällige Verzögerung (max.)
+          description: >
+            Der Rollladen fährt nach dem Einschalten des Nachtmodus zufällig
+            zwischen 0 und dieser Anzahl Minuten später herunter — nur später, nie
+            früher. Wirkt bei Abwesenheit bewohnt (Anwesenheitssimulation), und
+            mehrere Rollläden fahren nicht exakt gleichzeitig. Wird der
+            Nachtmodus in der Wartezeit ausgeschaltet oder ist die Automatik
+            danach pausiert, entfällt die Fahrt — ebenso bei Sturm (außer im
+            Panzer-Modus). Ein kurzes "nicht verfügbar" des Nachtmodus zählt
+            nicht als Ausschalten. 0 = sofort (bisheriges Verhalten). Hinweis:
+            Startet Home Assistant während der Wartezeit neu, entfällt die Fahrt.
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 60
+              step: 1
+              mode: slider
+              unit_of_measurement: Minuten
     storm_protection_section:
       name: Sturmschutz
       description: Fährt den Rollladen bei starkem Wind hoch (oder im Panzer-Modus herunter).
@@ -950,9 +990,11 @@ variables:
   morning_sun_offset: !input morning_sun_offset
   morning_motion_sensor: !input morning_motion_sensor
   morning_position: !input morning_position
+  morning_random_delay: !input morning_random_delay
   night_mode_boolean: !input night_mode_boolean
   night_position: !input night_position
   night_ventilation_position: !input night_ventilation_position
+  night_random_delay: !input night_random_delay
   frost_temp_sensor: !input frost_temp_sensor
   frost_temp_threshold: !input frost_temp_threshold
   frost_max_position: !input frost_max_position
@@ -1235,6 +1277,41 @@ actions:
               {{ morning_motion_sensor is not string }}
             {% endif %}
         sequence:
+          # Zufallsversatz (Anwesenheitssimulation): 0 bis X Minuten später öffnen,
+          # nie früher. Bei 0 entfällt die Wartezeit komplett (bisheriges Verhalten).
+          # Gilt für Uhrzeit, Sonnenaufgang und Nachtmodus-Ende — nicht für die
+          # Bewegung: Wer den Raum betritt, ist da und erwartet sofortiges Öffnen
+          - if:
+              - "{{ morning_random_delay | int(0) > 0 and trigger.id != 'morning_motion' }}"
+            then:
+              - variables:
+                  shading_on_before: "{{ shading_status_helper is string and is_state(shading_status_helper, 'on') }}"
+              - delay:
+                  seconds: "{{ range(0, (morning_random_delay | int(0)) * 60 + 1) | random }}"
+              # Zustand nach dem Warten neu bewerten: Pause- und Nachtmodus-Gate oben
+              # sind veraltet — ein inzwischen (wieder) eingeschalteter Nachtmodus hat
+              # Vorrang wie beim regulären Morgens-Öffnen.
+              # Hat die Beschattung erst während der Wartezeit begonnen, hat sie den
+              # Rollladen übernommen — Öffnen gäbe nur ein Auf und gleich wieder Ab
+              # (ohne Verzögerung wäre er jetzt ebenfalls beschattet). Wind, Frost und
+              # Position werden unten ohnehin erst jetzt bewertet
+              - variables:
+                  pause_now: >-
+                    {% set helpers = [pause_boolean] if pause_boolean is string else pause_boolean %}
+                    {% set pausing = 'on' if pause_mode == 'on_pauses' else 'off' %}
+                    {% set found = expand(helpers) | list %}
+                    {{ helpers | length > 0
+                       and found | length > 0
+                       and found | rejectattr('state', 'eq', pausing) | list | length == 0 }}
+                  night_on_now: "{{ night_mode_boolean is string and is_state(night_mode_boolean, 'on') }}"
+                  shading_started: >-
+                    {{ not shading_on_before
+                       and shading_status_helper is string
+                       and is_state(shading_status_helper, 'on') }}
+              - if:
+                  - "{{ pause_now or night_on_now or shading_started }}"
+                then:
+                  - stop: "Nach der Zufallsverzögerung pausiert, Nachtmodus an oder Beschattung inzwischen aktiv"
           # Sturm hat immer Vorrang: bei Starkwind wird morgens nicht bewegt
           # (im Panzer-Modus wäre das Öffnen direkt kontraproduktiv)
           - variables:
@@ -1295,8 +1372,51 @@ actions:
           - condition: trigger
             id: night_close
         sequence:
+          # Zufallsversatz (Anwesenheitssimulation): 0 bis X Minuten später
+          # schließen, nie früher. Bei 0 entfällt die Wartezeit komplett
+          - if:
+              - "{{ night_random_delay | int(0) > 0 }}"
+            then:
+              - variables:
+                  night_wait_seconds: "{{ range(0, (night_random_delay | int(0)) * 60 + 1) | random }}"
+              # Warten, aber auf ein echtes Ausschalten lauschen: Wird der Nachtmodus
+              # in der Wartezeit ausgeschaltet, entfällt die Fahrt (ein erneutes
+              # Einschalten ab "off" startet ohnehin einen neuen Lauf). Ein Wackler
+              # über unavailable (Template-Sensor, Reload) bricht dagegen nicht ab —
+              # night_close feuert nur ab "off", danach käme kein neuer Lauf mehr
+              - wait_for_trigger:
+                  - trigger: state
+                    entity_id: !input night_mode_boolean
+                    to: "off"
+                timeout:
+                  seconds: "{{ night_wait_seconds }}"
+                continue_on_timeout: true
+              # Zustand nach dem Warten neu bewerten: Nachtmodus ausgeschaltet oder
+              # Pause aktiv (das Gate oben ist veraltet) → gar nichts tun, auch die
+              # Status-Helfer bleiben dann unangetastet. unavailable/unknown am Ende
+              # gilt als "noch Nacht": Eingeschaltet war er, ein Ausschalten kam
+              # nicht — ein Sensor-Aussetzer soll die Nacht nicht offen lassen
+              - variables:
+                  pause_now: >-
+                    {% set helpers = [pause_boolean] if pause_boolean is string else pause_boolean %}
+                    {% set pausing = 'on' if pause_mode == 'on_pauses' else 'off' %}
+                    {% set found = expand(helpers) | list %}
+                    {{ helpers | length > 0
+                       and found | length > 0
+                       and found | rejectattr('state', 'eq', pausing) | list | length == 0 }}
+                  night_still_on: >-
+                    {{ night_mode_boolean is string
+                       and not is_state(night_mode_boolean, 'off') }}
+              - if:
+                  - "{{ wait.trigger is not none or pause_now or not night_still_on }}"
+                then:
+                  - stop: "Während der Zufallsverzögerung Nachtmodus ausgeschaltet oder danach pausiert"
           # Beschattungs-Status zurücksetzen: Die Nacht beendet die Beschattung,
-          # sonst springt der Rollladen morgens beim ersten Tick auf die End-Position
+          # sonst springt der Rollladen morgens beim ersten Tick auf die End-Position.
+          # Bewusst erst nach der Zufallsverzögerung: Bis dahin ist die Beschattung
+          # durch den Nachtmodus ohnehin eingefroren — und bricht der Lauf oben ab
+          # (Nachtmodus wieder aus), endet sie regulär, statt in
+          # Beschattungsposition hängen zu bleiben
           - if:
               - "{{ shading_status_helper is string and is_state(shading_status_helper, 'on') }}"
             then:
@@ -1311,6 +1431,24 @@ actions:
               - action: input_boolean.turn_off
                 target:
                   entity_id: "{{ solar_heating_status_helper }}"
+          # Sturm hat Vorrang vor der verzögerten Fahrt: Während der Wartezeit kann
+          # Starkwind aufgekommen sein — dann bleibt der Rollladen oben, wo ihn der
+          # Sturmschutz haben will. Im Panzer-Modus ist Schließen ohnehin die
+          # Schutzrichtung. Ohne Verzögerung bleibt das bisherige Verhalten unverändert
+          - variables:
+              wind_now: >-
+                {% if storm_wind_sensor is string %}
+                  {{ states(storm_wind_sensor) | float(0) }}
+                {% elif weather_entity is string %}
+                  {{ state_attr(weather_entity, 'wind_speed') | float(0) }}
+                {% else %}
+                  0
+                {% endif %}
+          - condition: >-
+              {{ night_random_delay | int(0) == 0
+                 or not storm_enabled
+                 or panzer_mode
+                 or (wind_now | float(0)) < wind_speed_threshold }}
           - choose:
               - conditions:
                   - >-

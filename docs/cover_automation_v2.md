@@ -60,6 +60,7 @@ Fenster, bis der Helfer gesetzt oder das Feature deaktiviert ist.
 | Morgens öffnen      | Fährt zur eingestellten Uhrzeit und/oder zum Sonnenaufgang auf die Zielposition (nur wenn geschlossener); optional erst bei der ersten Bewegung im Raum                  | `input_datetime`-Helfer (nur Uhrzeit) und/oder Sonnenaufgangs-Option |
 | Fenster-Interaktion | Kippen → Lüftungsposition, Öffnen → ganz auf (optional: wie Kippen behandeln); nach dem Schließen zurück in die Ausgangsposition                                         | Fenstersensor                                                        |
 | Nachtmodus          | Schließt beim Einschalten des Helfers (wahlweise auf eine Nacht-Zielposition statt ganz zu); offene/gekippte Fenster bekommen eine Lüftungsposition                      | `input_boolean`, Zeitplan oder Binärsensor                           |
+| Zufallsversatz      | Morgens-Öffnen und Nachtmodus fahren zufällig bis zu X Minuten später — wirkt bei Abwesenheit bewohnt                                                                    | — (je ein Regler, Standard 0 = aus)                                  |
 | Sturmschutz         | Fährt bei Starkwind hoch (oder im Panzer-Modus herunter)                                                                                                                 | Wetter-Entität oder Wind-Sensor                                      |
 | Sonnenschutz        | Beschattet anhand des Sonnenstands so, dass die Sonne höchstens X m in den Raum fällt; öffnet nach Ende wieder; optional an eine Freigabe-Entität (PV, Lux, …) gekoppelt | Status-Helfer, Geometrie, Temperaturquelle                           |
 | Sonnenheizen        | Öffnet im Winter vergessene Rollos, wenn Sonne ins Fenster scheint und es kalt ist                                                                                       | eigener Status-Helfer, Geometrie                                     |
@@ -190,6 +191,58 @@ Wer die Beschattung dauerhaft nicht will, deaktiviert den Schalter "Sonnenschutz
 aktivieren" in der Instanz — der Status-Helfer ist **kein** Ausschalter, er ist das
 interne Gedächtnis der Automation und stellt sich bei Handbetätigung einfach zurück.
 
+### Zufallsversatz und Anwesenheitssimulation (Urlaub)
+
+"Morgens öffnen" und "Nachtmodus" haben je einen Regler **Zufällige Verzögerung
+(max.)**. Steht er z. B. auf 20 Minuten, würfelt die Automation bei jedem Auslösen
+neu eine Wartezeit zwischen 0 und 20 Minuten (sekundengenau) und fährt erst danach —
+nur später, nie früher. Das hat zwei Effekte: Bei Abwesenheit wirkt das Haus bewohnt,
+weil die Rollläden nicht jeden Tag zur exakt gleichen Minute fahren, und mehrere
+Rollläden fahren nicht im Gleichschritt, weil jede Instanz für sich würfelt.
+Standard ist 0 = sofort, also das bisherige Verhalten. Beim Morgens-Öffnen gilt die
+Verzögerung für Uhrzeit, Sonnenaufgang und das Ende des Nachtmodus — nicht für das
+Öffnen bei Bewegung: Wer den Raum betritt, ist ja da, der Rollladen reagiert sofort.
+
+Nach der Wartezeit bewertet die Automation die Lage neu, statt blind zu fahren:
+
+- **Pause:** Ist die Automatik inzwischen pausiert, entfällt die Fahrt. Morgens wird
+  sie wie jedes verpasste Einzelereignis nicht nachgeholt; einen noch aktiven
+  Nachtmodus holt das Pause-Ende wie gewohnt nach.
+- **Nachtmodus am Morgen (wieder) an:** Das Öffnen entfällt — der Nachtmodus hat wie
+  beim regulären Morgens-Öffnen Vorrang.
+- **Nachtmodus wieder aus:** Wird der Nachtmodus während der Wartezeit
+  ausgeschaltet, entfällt die Nachtfahrt. Wurde der Helfer zwischendurch aus- und
+  wieder eingeschaltet, fährt nur der neuere Lauf. Ein kurzes "nicht verfügbar" eines
+  Sensors als Nachtmodus (z. B. beim Neuladen eines Template-Sensors) zählt nicht als
+  Ausschalten — auch nicht, wenn es genau am Ende der Wartezeit ansteht: Die Nacht
+  wurde eingeschaltet und nicht beendet, also wird geschlossen. Den Status-Helfer des
+  Sonnenschutzes setzt der Nachtmodus erst nach der Wartezeit zurück — beschattet
+  wird währenddessen trotzdem nicht mehr (der Nachtmodus ist ja schon an), und
+  entfällt die Fahrt, endet eine laufende Beschattung regulär, statt in
+  Beschattungsposition hängen zu bleiben.
+- **Sturm:** Der Wind wird erst nach der Wartezeit geprüft. Morgens wird bei
+  Starkwind wie bisher nicht geöffnet. Die verzögerte Nachtfahrt entfällt bei
+  Starkwind ebenfalls, der Rollladen wird dann nicht bewegt — außer im Panzer-Modus,
+  denn dort ist Schließen ohnehin die Schutzrichtung. Ohne Verzögerung schließt der
+  Nachtmodus wie bisher auch bei Wind.
+- **Beschattung am Morgen:** Hat die Beschattung erst während der Wartezeit
+  begonnen, entfällt das Öffnen — sonst führe der Rollladen hoch und beim nächsten
+  Tick gleich wieder herunter.
+- Ein während der Nacht-Wartezeit geöffnetes Fenster wird bereits nach den
+  Nacht-Regeln behandelt (nur Lüftungsposition statt ganz auf). Wird in dieser Zeit
+  ein offenes oder gekipptes Fenster geschlossen, fährt der Rollladen sofort zu, ohne
+  die Wartezeit abzuwarten.
+
+**Urlaub mit eigenen Zeiten:** Das Grundrezept — eine zweite Instanz für denselben
+Rollladen, über einen gemeinsamen Urlaubs-Helfer gegeneinander geschaltet — steht in
+der FAQ unter "Urlaubsmodus / Anwesenheitssimulation?". Dabei beachten: Der
+Urlaubs-Helfer muss in beiden Instanzen der einzige Pausier-Helfer sein (bei mehreren
+pausiert eine Instanz nur, wenn alle im Pausier-Zustand sind) und verfügbar (ein
+fehlender Helfer pausiert nie, dann laufen beide). In der Urlaubs-Instanz die
+Zufallsverzögerung setzen; Sonnenschutz und Sonnenheizen dort entweder aus lassen oder
+mit eigenen Status-Helfern betreiben. Den Sturmschutz in beiden gleich einstellen — er
+greift auch in der pausierten Instanz.
+
 ### Warum die Status-Helfer nötig sind
 
 Blueprints haben keinen eigenen Speicher, und bei Funk-Rollläden lässt sich aus den
@@ -219,6 +272,16 @@ die Einmal-Logik des Sonnenheizens und die Eingriffs-Erkennung auf.
   betreten, öffnet er erneut. Wer das nicht will, nutzt den Pausier-Helfer.
 - **Frostschutz** begrenzt die automatischen Fahrten, nicht das Zurückfahren auf eine
   gemerkte Ausgangsposition nach dem Lüften (die war ja bereits erreicht).
+- **Neustart während der Zufallsverzögerung:** Wird Home Assistant neu gestartet oder
+  die Automation neu geladen bzw. gespeichert, während die Wartezeit läuft, entfällt
+  die Fahrt — sie wird nicht nachgeholt: Morgens bleibt der Rollladen zu, nachts offen,
+  bis das nächste Ereignis ihn übernimmt. Nachts bleibt dann auch der Status-Helfer
+  einer abends noch laufenden Beschattung gesetzt; nach dem Ausschalten des
+  Nachtmodus behandelt der nächste Tick sie regulär weiter (meist: Ende mit Fahrt auf
+  die Position nach der Beschattung), ggf. schon vor der Morgens-Uhrzeit.
+- **Mehrere Instanzen würfeln unabhängig:** Jede Instanz zieht ihre eigene Wartezeit.
+  Rollläden, die gemeinsam fahren sollen (z. B. eine Fensterfront), lassen sich nicht
+  synchron verzögern — dort den Regler auf 0 lassen.
 
 ## FAQ
 
@@ -310,6 +373,12 @@ gekippt?** Dafür gibt es in der Fenster-Interaktion den Schalter "Öffnen wie K
 behandeln": Jedes "offen" gilt dann als "gekippt" — der Rollladen fährt auf die
 Kipp-Position statt komplett auf, und die Beschattung läuft weiter, statt zu
 pausieren. Typischer Fall: das Badfenster mit einfachem binärem Kontakt.
+
+**Alle Rollläden fahren auf die Minute gleichzeitig — geht das unauffälliger?** Ja:
+Mit dem Regler "Zufällige Verzögerung (max.)" bei "Morgens öffnen" und im Nachtmodus
+fährt jeder Rollladen zufällig bis zu X Minuten später. Details stehen oben unter
+"Zufallsversatz und Anwesenheitssimulation", das Rezept für den Urlaub unter
+"Urlaubsmodus / Anwesenheitssimulation?".
 
 **Kann ich die Automation zeitweise anhalten?** Ja — im Abschnitt "Pausieren" einen
 oder mehrere `input_boolean`-Helfer auswählen. Die Logik ist wählbar: "AN
