@@ -771,6 +771,51 @@ blueprint:
               step: 1
               mode: slider
               unit_of_measurement: km/h
+        storm_trigger_delay:
+          name: Auslöseverzögerung
+          description: >
+            So lange muss der Wind ununterbrochen über dem Grenzwert liegen, bevor
+            der Sturmschutz den Rollladen bewegt — einzelne kurze Böen lösen dann
+            nicht sofort aus. Fällt der Wert zwischendurch unter den Grenzwert oder
+            ist die Windquelle kurz nicht verfügbar, beginnt die Wartezeit von vorn.
+            Morgens-Öffnen, Beschattung und Sonnenheizen setzen weiterhin sofort
+            aus, solange der Wind über dem Grenzwert liegt.
+            0 = sofort auslösen (bisheriges Verhalten).
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 300
+              step: 1
+              mode: slider
+              unit_of_measurement: Sekunden
+        storm_release_delay:
+          name: Entwarnung nach
+          description: >
+            Liegt der Wind nach einem Sturm so lange ununterbrochen unter dem
+            Grenzwert, stellt die Automation den Normalzustand wieder her: Bei
+            aktivem Nachtmodus wird der Nachtzustand nachgeholt (je nach Fenster
+            Nacht-Zielposition oder Lüftungsposition). Tagsüber öffnet sie im
+            Panzer-Modus einen noch geschlossenen Rollladen auf die Zielposition
+            für morgens (Fensterregel wie beim Sturmschutz, nicht während laufender
+            Beschattung; mit "Morgens nur bei Bewegung öffnen" nur, wenn der Sensor
+            gerade Bewegung meldet); ohne Panzer-Modus bleibt er oben. "Tagsüber"
+            heißt: Nachtmodus aus, Sonne über dem Horizont und bei aktivem
+            Morgens-Öffnen dessen Zeitpunkt vorbei (Uhrzeit, im
+            Sonnenaufgangs-Modus auch Sonnenaufgang plus Verschiebung). Ist ein
+            Wind-Sensor gesetzt, entscheidet nur er. Während einer Pause entfällt
+            die Entwarnung.
+            0 = keine Entwarnung — der Rollladen bleibt nach dem Sturm in der
+            Schutzposition, bis ein reguläres Ereignis ihn übernimmt (bisheriges
+            Verhalten).
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 180
+              step: 1
+              mode: slider
+              unit_of_measurement: Minuten
         panzer_mode:
           name: Panzer-Modus
           description: Wenn aktiviert, wird der Rollladen bei Sturm geschlossen statt geöffnet.
@@ -964,6 +1009,7 @@ variables:
        and states(frost_temp_sensor) | float(99) <= frost_temp_threshold }}
   shading_enable_entity: !input shading_enable_entity
   storm_enabled: !input storm_enabled
+  storm_release_delay: !input storm_release_delay
   weather_entity: !input weather_entity
   storm_wind_sensor: !input storm_wind_sensor
   wind_speed_threshold: !input wind_speed_threshold
@@ -1121,11 +1167,15 @@ triggers:
     entity_id: !input weather_entity
     attribute: wind_speed
     above: !input wind_speed_threshold
+    for:
+      seconds: !input storm_trigger_delay
     id: storm_detected
     enabled: !input storm_enabled
   - trigger: numeric_state
     entity_id: !input storm_wind_sensor
     above: !input wind_speed_threshold
+    for:
+      seconds: !input storm_trigger_delay
     id: storm_detected
     enabled: !input storm_enabled
   - trigger: event
@@ -1153,6 +1203,23 @@ triggers:
       seconds: 2
     id: mosquito_lights
     enabled: !input mosquito_enabled
+  # Sturm-Entwarnung: Wind liegt wieder so lange unter dem Grenzwert. Bei 0 Minuten
+  # feuern die Trigger sofort, der Zweig prüft storm_release_delay und tut dann nichts
+  - trigger: numeric_state
+    entity_id: !input weather_entity
+    attribute: wind_speed
+    below: !input wind_speed_threshold
+    for:
+      minutes: !input storm_release_delay
+    id: storm_released
+    enabled: !input storm_enabled
+  - trigger: numeric_state
+    entity_id: !input storm_wind_sensor
+    below: !input wind_speed_threshold
+    for:
+      minutes: !input storm_release_delay
+    id: storm_released
+    enabled: !input storm_enabled
 
 actions:
   # Pausier-Helfer: hält die AUTOMATIK an, mit drei Ausnahmen — Sturmschutz
@@ -1386,6 +1453,141 @@ actions:
               - action: cover.close_cover
                 target:
                   entity_id: !input cover
+
+      # --- STURM-ENTWARNUNG: NORMALZUSTAND HERSTELLEN ---
+      # Bewusst keine Pause-Ausnahme: Während einer Pause passiert nichts, das
+      # Pause-Ende holt den Nachtmodus nach
+      - conditions:
+          - condition: trigger
+            id: storm_released
+          - "{{ storm_release_delay | int(0) > 0 }}"
+          # Wind-Sensor hat Vorrang: Ist er gesetzt, zählt die Wetter-Entität nicht
+          - "{{ not (storm_wind_sensor is string and trigger.entity_id == weather_entity) }}"
+          # Nur nach echtem Unterschreiten: Der Wert direkt davor muss numerisch
+          # über dem Grenzwert gelegen haben (from_state bleibt auch mit for: der
+          # Zustand vor dem Unterschreiten). unavailable/unknown schalten den
+          # below-Trigger ebenfalls scharf, etwa nach einem Neustart — ohne diese
+          # Prüfung gäbe es Entwarnungen an windstillen Tagen
+          - >-
+            {% set fs = trigger.from_state %}
+            {% if fs is none %}
+              {% set v = none %}
+            {% elif trigger.entity_id == weather_entity %}
+              {% set v = fs.attributes.get('wind_speed') %}
+            {% else %}
+              {% set v = fs.state %}
+            {% endif %}
+            {{ is_number(v) and v | float >= wind_speed_threshold }}
+        sequence:
+          - variables:
+              release_night: "{{ night_mode_boolean is string and is_state(night_mode_boolean, 'on') }}"
+              # Tagsüber = Nachtmodus aus, Sonne über dem Horizont und bei aktivem
+              # Morgens-Öffnen dessen Zeitpunkt vorbei — im Zweifel lieber zu lassen
+              # als im Dunkeln oder vor der Weckzeit öffnen. sun_gate und time_gate
+              # wie im Morgens-Zweig: Uhrzeit-Untergrenze erreicht und im
+              # Sonnenaufgangs-Modus zusätzlich Sonnenaufgang + Offset
+              release_daytime: >-
+                {% set nr_raw = state_attr('sun.sun', 'next_rising') %}
+                {% if nr_raw is none %}
+                  {% set sun_gate = is_state('sun.sun', 'above_horizon') %}
+                {% else %}
+                  {% set nr = as_datetime(nr_raw) %}
+                  {% set sunrise_today = nr if is_state('sun.sun', 'below_horizon') else nr - timedelta(hours=24) %}
+                  {% set sun_gate = now() >= sunrise_today + timedelta(minutes=morning_sun_offset | int(0)) %}
+                {% endif %}
+                {% set time_gate = not (morning_time_entity is string
+                                        and has_value(morning_time_entity)
+                                        and state_attr(morning_time_entity, 'has_time'))
+                                   or now() >= today_at(states(morning_time_entity).split(' ')[-1]) %}
+                {{ not release_night
+                   and is_state('sun.sun', 'above_horizon')
+                   and (not morning_enabled or (time_gate and (not morning_use_sun or sun_gate))) }}
+              # Frostschutz wie morgens: Aufwärtsfahrt bei Frost auf die schonende
+              # Maximal-Position begrenzen (festgefrorener Panzer)
+              release_target: >-
+                {% if frost_active %}
+                  {{ [morning_position | int(100), frost_max_position | int(100)] | min }}
+                {% else %}
+                  {{ morning_position | int(100) }}
+                {% endif %}
+          - choose:
+              # Nachtmodus aktiv: Nachtzustand wie beim Pause-Ende nachholen
+              - conditions:
+                  - "{{ release_night }}"
+                sequence:
+                  - choose:
+                      - conditions:
+                          - >-
+                            {{ window_sensor is string
+                               and ((states(window_sensor) | lower) == 'tilted'
+                                    or (treat_open_as_tilted and (states(window_sensor) | lower) in ['on', 'open'])) }}
+                        sequence:
+                          - action: cover.set_cover_position
+                            target:
+                              entity_id: !input cover
+                            data:
+                              position: !input tilted_position
+                      - conditions:
+                          - "{{ window_sensor is string and (states(window_sensor) | lower) in ['on', 'open'] }}"
+                        sequence:
+                          - action: cover.set_cover_position
+                            target:
+                              entity_id: !input cover
+                            data:
+                              position: !input night_ventilation_position
+                    default:
+                      - if:
+                          - "{{ night_position | int(0) > 0 and state_attr(cover_entity, 'current_position') is not none }}"
+                        then:
+                          - action: cover.set_cover_position
+                            target:
+                              entity_id: !input cover
+                            data:
+                              position: !input night_position
+                        else:
+                          - action: cover.close_cover
+                            target:
+                              entity_id: !input cover
+              # Tagsüber im Panzer-Modus: den noch geschlossenen Rollladen wie
+              # morgens öffnen (nur aufwärts, Fensterregel wie beim Sturmschutz).
+              # Hat ihn inzwischen etwas anderes bewegt, bleibt er. Eine laufende
+              # Beschattung (Status an, auch bei 0 %) hat Vorrang — sonst führe er
+              # hoch und der nächste Tick gleich wieder herunter. Der Sturm-Zweig hat
+              # den Status bereits freigegeben, der nächste Tick beschattet bei Bedarf.
+              # Im Bewegungs-Modus öffnet wie morgens erst die nächste Bewegung im
+              # Raum — ein den ganzen Tag ungenutzter Raum bleibt sonst nicht zu.
+              # Meldet der Sensor schon "on", käme keine neue Flanke mehr: Dann ist
+              # jemand im Raum und die Entwarnung darf öffnen
+              - conditions:
+                  - "{{ panzer_mode and release_daytime }}"
+                  - >-
+                    {{ force_storm_action
+                       or window_sensor is not string
+                       or (states(window_sensor) | lower) in ['off', 'closed'] }}
+                  - "{{ is_state(cover_entity, 'closed') }}"
+                  - "{{ not (shading_status_helper is string and is_state(shading_status_helper, 'on')) }}"
+                  - >-
+                    {{ not (morning_enabled
+                            and morning_motion_sensor is string
+                            and not is_state(morning_motion_sensor, 'on')) }}
+                sequence:
+                  - choose:
+                      - conditions:
+                          - "{{ state_attr(cover_entity, 'current_position') is not none }}"
+                          - "{{ state_attr(cover_entity, 'current_position') | int(101) < release_target | int(100) }}"
+                        sequence:
+                          - action: cover.set_cover_position
+                            target:
+                              entity_id: !input cover
+                            data:
+                              position: "{{ release_target }}"
+                      # Fallback für Cover ohne Positions-Attribut
+                      - conditions:
+                          - "{{ state_attr(cover_entity, 'current_position') is none }}"
+                        sequence:
+                          - action: cover.open_cover
+                            target:
+                              entity_id: !input cover
 
       # --- PAUSE BEENDET: ZUSTAND NACHHOLEN ---
       - conditions:
