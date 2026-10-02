@@ -358,8 +358,10 @@ blueprint:
             Haken für eigene Zusatzbedingungen: PV-Überschuss, Helligkeit
             (Lux-Schwelle), Anwesenheit auf der Terrasse, Raumtemperatur …
             einfach als Template-Binärsensor oder Helfer abbilden und hier
-            auswählen (Beispiele in der Doku). Geht die Entität während
-            laufender Beschattung stabil auf "aus", endet die Beschattung.
+            auswählen (Beispiele in der Doku). Auch ein Zeitplan-Helfer
+            (Schedule) passt, z.B. für Beschattung nur werktags. Geht die
+            Entität während laufender Beschattung stabil auf "aus" (10 Minuten),
+            endet die Beschattung direkt danach.
             Leer lassen = Beschattung ohne Zusatzbedingung. Bei "unavailable"
             startet keine neue Beschattung; eine laufende bleibt bestehen.
           default: []
@@ -368,6 +370,7 @@ blueprint:
               filter:
                 - domain: input_boolean
                 - domain: binary_sensor
+                - domain: schedule
         window_height:
           name: Fensterhöhe
           description: Höhe der Glasfläche in Metern.
@@ -1135,6 +1138,21 @@ triggers:
     id: close_shutter_action
   - trigger: time_pattern
     minutes: "/5"
+    id: shading_tick
+    enabled: !input shading_enabled
+  # Freigabe stabil entzogen: Beschattung direkt nach Ablauf der
+  # 10-Minuten-Trägheit beenden statt erst beim nächsten Tick (bis zu 5 min
+  # später). Gleiche ID wie der Tick, der Sonnenschutz-Zweig bewertet alles
+  # neu; das Ende greift über enable_off_stable (> 600 s seit last_changed) —
+  # die 5 s Puffer stellen sicher, dass die Bedingung beim Auslösen schon
+  # wahr ist. Leere Freigabe-Entität ([]) = Trigger ist valide und feuert nie
+  - trigger: state
+    entity_id: !input shading_enable_entity
+    from: "on"
+    to: "off"
+    for:
+      minutes: 10
+      seconds: 5
     id: shading_tick
     enabled: !input shading_enabled
   - trigger: time_pattern

@@ -145,8 +145,9 @@ Aufsetz-Punkt — die Lamellen bleiben immer offen.
 Die Beschattung rechnet bewusst nur mit Sonnenstand, Temperatur und (optional)
 Wetterlage. Für alles darüber hinaus gibt es die **Freigabe-Entität**: Ist dort eine
 Entität gesetzt, beschattet die Automation nur, solange diese "on" ist — und beendet
-eine laufende Beschattung, wenn sie mindestens 10 Minuten stabil "off" ist. Damit
-lässt sich jede eigene Bedingung anbinden, ohne dass das Blueprint sie kennen muss.
+eine laufende Beschattung, sobald sie 10 Minuten stabil "off" ist (direkt danach,
+nicht erst beim nächsten 5-Minuten-Takt). Damit lässt sich jede eigene Bedingung
+anbinden, ohne dass das Blueprint sie kennen muss.
 Zwei Beispiele als Template-Binärsensor in der `configuration.yaml`:
 
 ```yaml
@@ -166,6 +167,10 @@ Ein `delay_off` im Sensor glättet zusätzlich; die 10-Minuten-Trägheit im Blue
 verhindert in jedem Fall, dass eine flatternde Quelle den Rollladen im
 5-Minuten-Takt fahren lässt. Bei "unavailable" startet keine neue Beschattung, eine
 laufende bleibt bestehen.
+
+Statt eines Sensors passt auch ein **Zeitplan-Helfer** (`schedule`) — z. B. um nur
+werktags oder nur zu bestimmten Tageszeiten zu beschatten; "an" heißt Beschattung
+erlaubt.
 
 ### Manuelle Eingriffe während der Beschattung
 
