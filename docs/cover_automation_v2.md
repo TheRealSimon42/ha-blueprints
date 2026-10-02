@@ -199,6 +199,19 @@ Wandtaster kam (die Positions-Rückmeldung kommt immer vom Gerät selbst). Ein
 neustartfest zu speichern — und genau darauf bauen das automatische Wiederöffnen,
 die Einmal-Logik des Sonnenheizens und die Eingriffs-Erkennung auf.
 
+### Benachrichtigungen nur an Anwesende
+
+Standardmäßig geht die Fenster-offen-Meldung an alle ausgewählten Geräte. Mit dem
+Schalter "Nur anwesend" im Abschnitt Benachrichtigungen bekommt ein Gerät sie nur
+noch, wenn seine Person gerade zuhause ist — wer unterwegs ist, kann am Fenster
+ohnehin nichts ändern. Ein zusätzlicher Helfer ist dafür nicht nötig: Die Automation
+sucht zu jedem ausgewählten Gerät den Geräte-Tracker der Companion App. Ist dieser
+Tracker einer Person zugeordnet, zählt der Status der Person (`person.*`), sonst der
+des Trackers selbst — gesendet wird nur bei `home`. Geräte ohne Tracker bekommen die
+Meldung weiterhin immer. Das automatische Entfernen der Meldung beim Schließen des
+Fensters geht unabhängig davon an alle Geräte, damit nichts auf einem Handy hängen
+bleibt.
+
 ## Bekannte Grenzen
 
 - **Wind-Sensor kurz nicht verfügbar** zählt als "windstill". Bewusste Entscheidung:
@@ -219,6 +232,9 @@ die Einmal-Logik des Sonnenheizens und die Eingriffs-Erkennung auf.
   betreten, öffnet er erneut. Wer das nicht will, nutzt den Pausier-Helfer.
 - **Frostschutz** begrenzt die automatischen Fahrten, nicht das Zurückfahren auf eine
   gemerkte Ausgangsposition nach dem Lüften (die war ja bereits erreicht).
+- **"Nur anwesend" holt nichts nach:** Kommt jemand erst nach Ablauf des Timeouts nach
+  Hause, während das Fenster noch offen ist, gibt es keine nachträgliche Meldung — der
+  Trigger feuert nur einmal.
 
 ## FAQ
 

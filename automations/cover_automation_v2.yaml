@@ -933,6 +933,18 @@ blueprint:
           selector:
             entity:
               domain: input_boolean
+        notify_only_when_home:
+          name: Nur anwesend
+          description: >
+            Wenn aktiviert, bekommt ein Gerät die Benachrichtigung nur, wenn seine
+            Person gerade zuhause ist. Grundlage ist der Geräte-Tracker der
+            Companion App; ist dieser Tracker einer Person zugeordnet, zählt deren
+            Status (person.*), sonst der Tracker selbst. Geräte ohne Tracker
+            erhalten die Meldung weiterhin immer. Aus = alle ausgewählten Geräte
+            werden benachrichtigt (bisheriges Verhalten).
+          default: false
+          selector:
+            boolean: {}
 
 mode: parallel
 max: 20
@@ -1012,6 +1024,7 @@ variables:
   notification_timeout: !input notification_timeout
   notification_timeout_tilted: !input notification_timeout_tilted
   notification_device: !input notification_device
+  notify_only_when_home: !input notify_only_when_home
   action_id: "{{ 'CLOSE_SHUTTER__' ~ window_sensor }}"
   notification_tag: "{{ 'fenster_offen_' ~ (window_sensor | slugify) }}"
   device_name_map: >
@@ -1800,8 +1813,40 @@ actions:
                 {%- else -%}
                   Fenster '{{ window_label }}' ist seit über {{ timeout_used }} Minuten {{ state_word }}.
                 {%- endif -%}
+              # Empfänger dieser Meldung: mit "Nur anwesend" nur Geräte, deren Person
+              # zuhause ist. Maßgeblich ist der Geräte-Tracker der Companion App —
+              # ist er einer Person zugeordnet, zählt deren Status, sonst der Tracker
+              # selbst. Geräte ohne Tracker bekommen die Meldung immer (fail-safe).
+              # Das Abräumen beim Schließen geht bewusst weiter an ALLE Geräte
+              recipients: >-
+                {% set ns = namespace(names=[]) %}
+                {% for device_id in notification_device %}
+                  {% set device_name = device_attr(device_id, 'name') %}
+                  {% if device_name %}
+                    {% set dev = namespace(send=true) %}
+                    {% if notify_only_when_home %}
+                      {% set trackers = device_entities(device_id)
+                         | select('match', 'device_tracker\\.') | list %}
+                      {% if trackers | count > 0 %}
+                        {% set tracker = trackers | first %}
+                        {% set persons = states.person
+                           | selectattr('attributes.device_trackers', 'defined')
+                           | selectattr('attributes.device_trackers', 'contains', tracker)
+                           | map(attribute='entity_id') | list %}
+                        {% set presence = persons | first if persons | count > 0 else tracker %}
+                        {% set dev.send = is_state(presence, 'home') %}
+                      {% endif %}
+                    {% endif %}
+                    {% if dev.send %}
+                      {% set ns.names = ns.names + ['mobile_app_' ~ (device_name | slugify)] %}
+                    {% endif %}
+                  {% endif %}
+                {% endfor %}
+                {{ ns.names }}
+          # Niemand zuhause: sauber abbrechen statt eines leeren Versands
+          - condition: "{{ recipients | length > 0 }}"
           - repeat:
-              for_each: "{{ device_name_map }}"
+              for_each: "{{ recipients }}"
               sequence:
                 # Ein einzelnes umbenanntes/entferntes Gerät darf den Versand an
                 # die übrigen Geräte nicht abbrechen
