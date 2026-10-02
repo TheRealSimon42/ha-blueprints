@@ -5,8 +5,10 @@ blueprint:
     Reaktion auf gekippte/geöffnete Fenster inkl. Rückfahr-Logik, Nachtmodus, Sturmschutz,
     automatische Beschattung anhand des Sonnenstands (Sonnenschutz, optional mit Filter
     nach Wetterlage), Sonnenheizen (das Gegenteil: öffnet in der Heizperiode
-    heruntergelassene/vergessene Rollläden bei Sonne und Kälte) sowie ein Moskito-Modus,
-    der beim Öffnen des Fensters nach Sonnenuntergang die Lichter im Raum ausschaltet.
+    heruntergelassene/vergessene Rollläden bei Sonne und Kälte), ein Moskito-Modus,
+    der beim Öffnen des Fensters nach Sonnenuntergang die Lichter im Raum ausschaltet,
+    sowie ein Abwesenheitsmodus (schließen, wenn niemand zuhause ist, und beim
+    Heimkommen wieder öffnen).
 
 
     Pro Fenster/Rollladen wird eine eigene Automation aus diesem Blueprint erstellt.
@@ -721,6 +723,118 @@ blueprint:
               step: 1
               mode: slider
               unit_of_measurement: "%"
+    away_section:
+      name: Abwesenheit
+      description: >
+        Reagiert darauf, dass niemand mehr zuhause ist: Rollladen beim Verlassen
+        schließen, beim Heimkommen tagsüber wieder öffnen und während der
+        Abwesenheit strenger beschatten. Morgens-Öffnen und Nachtmodus laufen
+        auch während der Abwesenheit normal weiter — im Urlaub fahren die
+        Rollläden damit weiter im Tagesrhythmus, statt tagelang unten zu bleiben.
+        Ohne Anwesenheits-Entitäten ist dieser Abschnitt wirkungslos.
+      icon: mdi:home-export-outline
+      collapsed: true
+      input:
+        presence_entities:
+          name: Anwesenheits-Entitäten
+          description: >
+            Woran die Automation erkennt, ob jemand zuhause ist — z.B. Personen,
+            Geräte-Tracker, eine Personen-Gruppe, die Zone "Zuhause" oder ein
+            eigener Anwesenheits-Helfer. Als abwesend gilt das Haus erst, wenn
+            ALLE ausgewählten Entitäten "weg" melden: Personen/Tracker nicht
+            "home", Gruppen/Binärsensoren/Helfer nicht "on"/"home", Zonen mit 0
+            Personen. Eine nicht verfügbare oder unbekannte Entität zählt als
+            anwesend (lieber einmal nicht schließen als unerwartet fahren) —
+            deshalb nur Personen mit zugeordnetem Tracker auswählen.
+            Leer = Abwesenheitsfunktionen aus. In allen Blueprint-Instanzen
+            dieselben Entitäten auswählen.
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain:
+                    - person
+                    - device_tracker
+                    - group
+                    - zone
+                    - binary_sensor
+                    - input_boolean
+        away_delay:
+          name: Wartezeit bis "abwesend"
+          description: >
+            So lange müssen alle ununterbrochen weg sein, bevor die Abwesenheit
+            gilt — verhindert Fahrten, wenn jemand nur kurz zum Briefkasten geht
+            oder ein Tracker kurz aussetzt. Das Heimkommen wirkt dagegen sofort.
+          default: 10
+          selector:
+            number:
+              min: 0
+              max: 120
+              step: 1
+              mode: slider
+              unit_of_measurement: Minuten
+        away_close_enabled:
+          name: Bei Abwesenheit schließen
+          description: >
+            Fährt den Rollladen auf die Abwesenheits-Position (nächstes Feld),
+            sobald alle für die Wartezeit weg sind — nur abwärts, nicht während
+            einer Pause, und bei Sturm hat der Sturmschutz Vorrang. Solange
+            niemand zuhause ist und der Rollladen unten steht, öffnen ihn auch
+            Sonnenschutz und Sonnenheizen nicht. Kommt nach einer echten
+            Abwesenheit jemand zurück, steht der Rollladen noch auf oder unter der
+            Abwesenheits-Position (egal wer ihn dorthin gefahren hat) und ist es
+            weder Nacht (Nachtmodus-Helfer an) noch dunkel, öffnet er auf die
+            Zielposition für morgens (bei Frost begrenzt wie morgens; ist für
+            morgens ein Bewegungssensor gesetzt und steht der Rollladen tief genug
+            für das Bewegungs-Öffnen, öffnet erst die erste Bewegung im Raum); die
+            Beschattung bewertet danach der nächste Durchlauf neu.
+            ⚠️ Aussperr-Schutz: Ist das Fenster bzw. die Tür offen oder gekippt,
+            wird nicht geschlossen — vielleicht steht doch jemand ohne Handy auf
+            dem Balkon. Der Schutz braucht einen Fenstersensor; ohne ihn gilt das
+            Fenster als geschlossen.
+          default: false
+          selector:
+            boolean: {}
+        away_close_position:
+          name: Position bei Abwesenheit
+          description: >
+            Die Position (in %), auf die der Rollladen bei Abwesenheit fährt. Es
+            wird nur gefahren, wenn der Rollladen offener ist als diese Position.
+            0 = ganz schließen.
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 1
+              mode: slider
+              unit_of_measurement: "%"
+        away_shading_strict:
+          name: Strenger beschatten bei Abwesenheit
+          description: >
+            Solange niemand zuhause ist, gilt für den Sonnenschutz die maximale
+            Sonneneinfall-Tiefe aus dem nächsten Feld statt der normalen —
+            mehr Hitzeschutz, wenn ein dunklerer Raum niemanden stört. Wirkt ab
+            Ablauf der Wartezeit bis zum Heimkommen und braucht den aktivierten
+            Sonnenschutz.
+          default: false
+          selector:
+            boolean: {}
+        away_shading_depth:
+          name: Maximale Sonneneinfall-Tiefe bei Abwesenheit
+          description: >
+            Wie die maximale Sonneneinfall-Tiefe im Sonnenschutz, gilt aber nur
+            während der Abwesenheit. Ist die normale Tiefe bereits kleiner, bleibt
+            es bei der normalen.
+          default: 0.3
+          selector:
+            number:
+              min: 0
+              max: 3
+              step: 0.1
+              mode: box
+              unit_of_measurement: m
     storm_protection_section:
       name: Sturmschutz
       description: Fährt den Rollladen bei starkem Wind hoch (oder im Panzer-Modus herunter).
@@ -1007,6 +1121,43 @@ variables:
     {{ helpers | length > 0
        and found | length > 0
        and found | rejectattr('state', 'eq', pausing) | list | length == 0 }}
+  presence_entities: !input presence_entities
+  away_close_enabled: !input away_close_enabled
+  away_close_position: !input away_close_position
+  away_shading_strict: !input away_shading_strict
+  away_shading_depth: !input away_shading_depth
+  # Anwesenheit pro Entität: 'home' = sicher da, 'away' = sicher weg,
+  # 'unknown' = unavailable/unknown — zählt NICHT als weg (fail-safe).
+  # Gleiche Logik wie im Template-Trigger away_start
+  presence_states: >-
+    {% set ns = namespace(out=[]) %}
+    {% for e in ([presence_entities] if presence_entities is string else presence_entities) %}
+      {% set st = states(e) %}
+      {% set d = e.split('.')[0] %}
+      {% if st in ['unavailable', 'unknown'] %}
+        {% set ns.out = ns.out + ['unknown'] %}
+      {% elif (d == 'zone' and st | int(1) > 0)
+            or (d in ['person', 'device_tracker'] and st == 'home')
+            or (d not in ['zone', 'person', 'device_tracker'] and st in ['on', 'home']) %}
+        {% set ns.out = ns.out + ['home'] %}
+      {% else %}
+        {% set ns.out = ns.out + ['away'] %}
+      {% endif %}
+    {% endfor %}
+    {{ ns.out }}
+  presence_all_away: "{{ presence_states | length > 0 and presence_states | reject('eq', 'away') | list | length == 0 }}"
+  presence_anyone_home: "{{ 'home' in presence_states }}"
+  # Merker "Abwesenheit hat begonnen" (dynamische Szene, gesetzt nach Ablauf der
+  # Wartezeit, entfernt beim Heimkommen). Überlebt keinen HA-Neustart — dann
+  # entfallen bis zur nächsten Abwesenheit nur Wiederöffnen und strenge Beschattung
+  away_marker: "scene.away_{{ cover_entity | slugify }}"
+  # Bei Abwesenheit unten gehalten: Sonnenschutz und Sonnenheizen fassen den
+  # Rollladen nicht an. 'closing' deckt die laufende Fahrt nach unten ab, damit
+  # ein gleichzeitiger Tick das Abwesenheits-Schließen nicht abbricht
+  away_hold: >-
+    {{ away_close_enabled and presence_all_away
+       and (state_attr(cover_entity, 'current_position') | int(101) <= away_close_position
+            or is_state(cover_entity, 'closing')) }}
   sleep_mode_boolean: !input sleep_mode_boolean
   use_area_name: !input use_area_name
   notification_timeout: !input notification_timeout
@@ -1028,6 +1179,7 @@ variables:
 # Trigger, damit nicht jede Notification-Action jeder Instanz einen Lauf startet
 trigger_variables:
   window_sensor_tv: !input window_sensor
+  presence_tv: !input presence_entities
 
 triggers:
   - trigger: time
@@ -1153,13 +1305,42 @@ triggers:
       seconds: 2
     id: mosquito_lights
     enabled: !input mosquito_enabled
+  # Abwesenheit beginnt: ALLE Anwesenheits-Entitäten sicher weg, und zwar
+  # ununterbrochen für die Wartezeit. Template statt state-Trigger, weil
+  # state-Trigger mit for: pro Entität zählen und Zonenwechsel ("Arbeit" →
+  # unterwegs) die Wartezeit neu starten würden. Leere Liste: nie wahr
+  - trigger: template
+    value_template: >-
+      {% set ents = [presence_tv] if presence_tv is string else presence_tv %}
+      {% set ns = namespace(away=0) %}
+      {% for e in ents %}
+        {% set st = states(e) %}
+        {% set d = e.split('.')[0] %}
+        {% if st not in ['unavailable', 'unknown']
+           and not ((d == 'zone' and st | int(1) > 0)
+                    or (d in ['person', 'device_tracker'] and st == 'home')
+                    or (d not in ['zone', 'person', 'device_tracker'] and st in ['on', 'home'])) %}
+          {% set ns.away = ns.away + 1 %}
+        {% endif %}
+      {% endfor %}
+      {{ ents | length > 0 and ns.away == ents | length }}
+    for:
+      minutes: !input away_delay
+    id: away_start
+  # Heimkommen: jede Zustandsänderung (ohne Attribut-Änderungen) — ob wirklich
+  # jemand zurück ist und vorher eine Abwesenheit lief, prüft der Zweig
+  - trigger: state
+    entity_id: !input presence_entities
+    to: null
+    id: away_return
 
 actions:
-  # Pausier-Helfer: hält die AUTOMATIK an, mit drei Ausnahmen — Sturmschutz
-  # (Hardware-Schutz geht vor), Benachrichtigungs-Aufräumen (bewegt nichts) und
-  # der Notification-Knopf (ein bewusster Nutzer-Befehl, wie der Wandtaster)
+  # Pausier-Helfer: hält die AUTOMATIK an, mit vier Ausnahmen — Sturmschutz
+  # (Hardware-Schutz geht vor), Benachrichtigungs-Aufräumen (bewegt nichts),
+  # der Notification-Knopf (ein bewusster Nutzer-Befehl, wie der Wandtaster) und
+  # das Heimkommen (räumt nur den Abwesenheits-Merker ab, fährt in der Pause nicht)
   - condition: >-
-      {{ trigger.id | default('') in ['storm_detected', 'window_closed', 'close_shutter_action']
+      {{ trigger.id | default('') in ['storm_detected', 'window_closed', 'close_shutter_action', 'away_return']
          or not pause_active }}
   - choose:
       # --- MORGENS ÖFFNEN (Uhrzeit, Sonnenaufgang oder Bewegung) ---
@@ -1462,6 +1643,183 @@ actions:
                         target:
                           entity_id: !input cover
 
+      # --- ABWESENHEIT BEGINNT ---
+      - conditions:
+          - condition: trigger
+            id: away_start
+          - "{{ away_close_enabled or away_shading_strict }}"
+          # Der Template-Trigger war für die Wartezeit wahr — trotzdem neu prüfen
+          - "{{ presence_all_away }}"
+        sequence:
+          - variables:
+              wind_now: >-
+                {% if storm_wind_sensor is string %}
+                  {{ states(storm_wind_sensor) | float(0) }}
+                {% elif weather_entity is string %}
+                  {{ state_attr(weather_entity, 'wind_speed') | float(0) }}
+                {% else %}
+                  0
+                {% endif %}
+              # Schließen nur bei sicher geschlossenem Fenster (Aussperr-Schutz;
+              # auch unavailable blockiert, ohne Fenstersensor gilt es als
+              # geschlossen) und ohne Sturm (Sturmschutz hat Vorrang)
+              close_ok: >-
+                {{ away_close_enabled
+                   and (not storm_enabled or (wind_now | float(0)) < wind_speed_threshold)
+                   and (window_sensor is not string
+                        or (states(window_sensor) | lower) in ['off', 'closed']) }}
+          # Abwesenheit merken — Grundlage für Wiederöffnen und strenge Beschattung.
+          # Vor dem Status-Reset, damit ein gleichzeitiger Tick nicht noch mit der
+          # normalen Tiefe neu startet; fehlertolerant, das Schließen geht vor
+          - action: scene.create
+            continue_on_error: true
+            data:
+              scene_id: "{{ 'away_' ~ (cover_entity | slugify) }}"
+              snapshot_entities:
+                - "{{ cover_entity }}"
+          # Beschattungs-Status freigeben: Das Schließen ist eine Fremdbewegung, und
+          # die strenge Beschattung verschiebt die Sollposition sprunghaft — beides
+          # darf der nächste Tick nicht als manuellen Eingriff werten
+          - if:
+              - "{{ close_ok or away_shading_strict }}"
+              - "{{ shading_status_helper is string and is_state(shading_status_helper, 'on') }}"
+            then:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: "{{ shading_status_helper }}"
+          - if:
+              - "{{ close_ok }}"
+            then:
+              # Sonnenheizen-Status zurücksetzen wie beim Nachtmodus — solange der
+              # Rollladen bei Abwesenheit unten steht, pausiert Sonnenheizen ohnehin
+              - if:
+                  - "{{ solar_heating_status_helper is string and is_state(solar_heating_status_helper, 'on') }}"
+                then:
+                  - action: input_boolean.turn_off
+                    target:
+                      entity_id: "{{ solar_heating_status_helper }}"
+              - choose:
+                  # Nur abwärts fahren
+                  - conditions:
+                      - "{{ state_attr(cover_entity, 'current_position') is not none }}"
+                      - "{{ state_attr(cover_entity, 'current_position') | int(-1) > away_close_position }}"
+                    sequence:
+                      - action: cover.set_cover_position
+                        target:
+                          entity_id: !input cover
+                        data:
+                          position: !input away_close_position
+                  # Fallback für Cover ohne Positions-Attribut: ganz schließen
+                  - conditions:
+                      - "{{ state_attr(cover_entity, 'current_position') is none }}"
+                      - "{{ is_state(cover_entity, 'open') }}"
+                    sequence:
+                      - action: cover.close_cover
+                        target:
+                          entity_id: !input cover
+
+      # --- ABWESENHEIT ENDET: JEMAND IST ZURÜCK ---
+      - conditions:
+          - condition: trigger
+            id: away_return
+          - "{{ presence_anyone_home }}"
+          # Nur wenn vorher wirklich eine Abwesenheit begonnen hatte: Kurzes
+          # Weg-und-zurück (unter der Wartezeit), Tracker-Aussetzer und Neustarts
+          # bewegen so nichts
+          - "{{ expand(away_marker) | count > 0 }}"
+        sequence:
+          # Merker zuerst entfernen — auch während einer Pause, sonst gälte ein
+          # späteres kurzes Weg-und-zurück als Heimkommen
+          - action: scene.delete
+            continue_on_error: true
+            target:
+              entity_id: "{{ away_marker }}"
+          # Fahren und Status-Änderungen nur ohne Pause
+          - condition: "{{ not pause_active }}"
+          - variables:
+              wind_now: >-
+                {% if storm_wind_sensor is string %}
+                  {{ states(storm_wind_sensor) | float(0) }}
+                {% elif weather_entity is string %}
+                  {{ state_attr(weather_entity, 'wind_speed') | float(0) }}
+                {% else %}
+                  0
+                {% endif %}
+              # Rollladen wurde bei Abwesenheit unten gehalten: steht noch auf/unter
+              # der Abwesenheits-Position oder fährt gerade dorthin
+              was_held: >-
+                {% set pos = state_attr(cover_entity, 'current_position') %}
+                {{ away_close_enabled
+                   and ((pos is not none and pos | int(101) <= away_close_position)
+                        or (pos is none and is_state(cover_entity, 'closed'))
+                        or is_state(cover_entity, 'closing')) }}
+              # Bewegungs-Modus des Morgens-Öffnens (selten genutzter Raum): Die
+              # erste Bewegung im Raum öffnet den Rollladen, wenn er so tief steht,
+              # wie dessen Bedingung verlangt (gleiche Grenze wie im Morgens-Zweig).
+              # Dann überlässt das Heimkommen ihr das Öffnen; steht er höher (z.B.
+              # Abwesenheits-Position über der Grenze), öffnete an diesem Tag sonst
+              # nichts mehr — dann öffnet das Heimkommen wie ohne Bewegungs-Modus
+              motion_opens: >-
+                {{ morning_enabled
+                   and morning_motion_sensor is string
+                   and ((state_attr(cover_entity, 'current_position') is none
+                         and (states(cover_entity) | lower) in ['closed', 'closing'])
+                        or (state_attr(cover_entity, 'current_position') is not none
+                            and state_attr(cover_entity, 'current_position') | int(101)
+                                <= [night_position | int(0), tilted_position | int(0),
+                                    night_ventilation_position | int(0), 10] | max)) }}
+              # Wieder öffnen nur, wenn es weder Nacht noch dunkel ist (beim
+              # Heimkommen soll Tageslicht rein, abends bleibt er zu) und kein
+              # Sturm herrscht
+              open_ok: >-
+                {{ was_held
+                   and not motion_opens
+                   and not (night_mode_boolean is string and is_state(night_mode_boolean, 'on'))
+                   and not is_state('sun.sun', 'below_horizon')
+                   and (not storm_enabled or (wind_now | float(0)) < wind_speed_threshold) }}
+              # Frostschutz: Aufwärtsfahrt bei Frost auf die schonende
+              # Maximal-Position begrenzen (festgefrorener Panzer) — wie morgens
+              return_target: >-
+                {% if frost_active %}
+                  {{ [morning_position | int(100), frost_max_position | int(100)] | min }}
+                {% else %}
+                  {{ morning_position | int(100) }}
+                {% endif %}
+          # Beschattungs-Status freigeben: Wiederöffnen ist eine Fremdbewegung, nach
+          # strenger Beschattung gilt wieder die normale Sollposition, und ein
+          # während des Unten-Haltens aufgeschobenes Beschattungs-Ende darf nicht
+          # nachträglich (womöglich im Dunkeln) noch öffnen
+          - if:
+              - "{{ was_held or away_shading_strict }}"
+              - "{{ shading_status_helper is string and is_state(shading_status_helper, 'on') }}"
+            then:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: "{{ shading_status_helper }}"
+          - if:
+              - "{{ open_ok }}"
+            then:
+              - choose:
+                  # Nur aufwärts fahren — oder eine noch laufende Abwärtsfahrt abfangen
+                  - conditions:
+                      - "{{ state_attr(cover_entity, 'current_position') is not none }}"
+                      - >-
+                        {{ state_attr(cover_entity, 'current_position') | int(101) < return_target | int(100)
+                           or is_state(cover_entity, 'closing') }}
+                    sequence:
+                      - action: cover.set_cover_position
+                        target:
+                          entity_id: !input cover
+                        data:
+                          position: "{{ return_target }}"
+                  # Fallback für Cover ohne Positions-Attribut
+                  - conditions:
+                      - "{{ state_attr(cover_entity, 'current_position') is none }}"
+                    sequence:
+                      - action: cover.open_cover
+                        target:
+                          entity_id: !input cover
+
       # --- SONNENSCHUTZ ---
       - conditions:
           - condition: trigger
@@ -1484,6 +1842,8 @@ actions:
                     Bitte in der Automation einen Helfer auswählen oder den
                     Sonnenschutz deaktivieren.
               - stop: "Sonnenschutz aktiviert, aber kein Status-Helfer konfiguriert"
+          # Bei Abwesenheit unten gehalten: weder beschatten noch (Ende) öffnen
+          - condition: "{{ not away_hold }}"
           - variables:
               sun_elevation: "{{ state_attr('sun.sun', 'elevation') | float(0) }}"
               sun_azimuth: "{{ state_attr('sun.sun', 'azimuth') | float(0) }}"
@@ -1554,6 +1914,12 @@ actions:
                 {{ shading_enable_entity is string
                    and states(shading_enable_entity) == 'off'
                    and (as_timestamp(now()) - as_timestamp(states[shading_enable_entity].last_changed)) > 600 }}
+              # Strengere Beschattung, solange eine Abwesenheit läuft (Merker gesetzt
+              # und niemand zurück); nie lockerer als die normale Einfall-Tiefe
+              shading_depth_now: >-
+                {{ [away_shading_depth, shading_depth] | min
+                   if away_shading_strict and not presence_anyone_home and expand(away_marker) | count > 0
+                   else shading_depth }}
           - choose:
               # Beschattung starten / der Sonne nachführen
               - conditions:
@@ -1570,9 +1936,9 @@ actions:
                 sequence:
                   - variables:
                       # Höhe (über dem Boden), auf der ein Sonnenstrahl die Fensterebene
-                      # durchqueren darf, damit er maximal shading_depth tief in den Raum fällt
+                      # durchqueren darf, damit er maximal shading_depth_now tief in den Raum fällt
                       ray_height: >-
-                        {{ shading_depth * tan(sun_elevation * pi / 180)
+                        {{ shading_depth_now * tan(sun_elevation * pi / 180)
                            / ([cos(az_diff * pi / 180), 0.087] | max) }}
                       target_position: >-
                         {% set glass_free = [[(ray_height - window_sill_height) / window_height * 100, 0] | max, 100] | min %}
@@ -1657,6 +2023,8 @@ actions:
                     Bitte in der Automation einen Helfer auswählen oder Sonnenheizen
                     deaktivieren.
               - stop: "Sonnenheizen aktiviert, aber kein Status-Helfer konfiguriert"
+          # Bei Abwesenheit unten gehalten: nicht öffnen (Sichtschutz geht vor)
+          - condition: "{{ not away_hold }}"
           - variables:
               sun_elevation: "{{ state_attr('sun.sun', 'elevation') | float(0) }}"
               sun_azimuth: "{{ state_attr('sun.sun', 'azimuth') | float(0) }}"
