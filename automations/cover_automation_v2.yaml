@@ -162,6 +162,28 @@ blueprint:
               step: 1
               mode: slider
               unit_of_measurement: "%"
+        open_position:
+          name: Position bei geöffnetem Fenster
+          description: >
+            Die Position (in %), auf die der Rollladen fährt, wenn das Fenster
+            komplett geöffnet wird. Es wird nur nach oben gefahren — steht der
+            Rollladen bereits höher, bleibt er, wo er ist. 100 = ganz auf
+            (bisheriges Verhalten). Praktisch z.B. als Durchgang für die Katze
+            oder wenn der Rollladen beim Lüften nicht ganz hochfahren soll.
+            Nachts (Nachtmodus aktiv) gilt stattdessen die "Nachtposition bei
+            offenem Fenster", bei "Öffnen wie Kippen behandeln" die Kipp-Position.
+            Bei Frost (siehe Frostschutz) höchstens bis zu dessen Maximal-Position.
+            Rollläden ohne Positionsangabe fahren immer ganz auf.
+            ⚠️ Bei Balkon- und Terrassentüren: Die Position muss hoch genug zum
+            Durchgehen sein!
+          default: 100
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 1
+              mode: slider
+              unit_of_measurement: "%"
         reclose_timeout:
           name: Zeitfenster für automatisches Zurückfahren
           description: >
@@ -198,6 +220,30 @@ blueprint:
           default: false
           selector:
             boolean: {}
+        window_reaction_delay:
+          name: Reaktionszeit
+          description: >
+            So lange (in Sekunden) muss das Fenster unverändert offen, gekippt
+            bzw. geschlossen sein, bevor die Automation reagiert — beim Hochfahren
+            nach dem Öffnen/Kippen, beim Zurückfahren nach dem Schließen, im
+            Moskito-Modus und beim Abräumen der Benachrichtigung. Größere Werte
+            ignorieren kurzes Öffnen (z.B. Blumen gießen oder ein paar Sekunden
+            Lüften) und filtern prellende Kontakte; dafür reagiert der Rollladen
+            entsprechend später — bei Balkon- und Terrassentüren wartet man beim
+            Rausgehen länger. 2 = bisheriges Verhalten. Die Wartezeiten, nach
+            denen eine Benachrichtigung verschickt wird, sind davon unabhängig.
+            Tipp: Viele Fenstergriff-Sensoren melden beim Drehen von "zu" auf
+            "gekippt" für 2–3 Sekunden "offen". Liegt die Reaktionszeit darunter,
+            fährt der Rollladen bei jedem Kippen erst ganz auf — dann 5 Sekunden
+            einstellen.
+          default: 2
+          selector:
+            number:
+              min: 1
+              max: 120
+              step: 1
+              mode: slider
+              unit_of_measurement: Sekunden
     window_geometry_section:
       name: Fenstergeometrie & Sonnenausrichtung
       description: >
@@ -941,6 +987,8 @@ variables:
   cover_entity: !input cover
   window_sensor: !input window_sensor
   tilted_position: !input tilted_position
+  window_reaction_delay: !input window_reaction_delay
+  open_position: !input open_position
   reclose_timeout: !input reclose_timeout
   force_close: !input force_close
   treat_open_as_tilted: !input treat_open_as_tilted
@@ -1060,7 +1108,7 @@ triggers:
       - "tilted"
       - "Tilted"
     for:
-      seconds: 2
+      seconds: !input window_reaction_delay
     id: window_change
   - trigger: state
     entity_id: !input window_sensor
@@ -1086,7 +1134,7 @@ triggers:
       - "closed"
       - "Closed"
     for:
-      seconds: 2
+      seconds: !input window_reaction_delay
     id: window_closed
   # Beide Richtungen, gleiche ID: Welcher Übergang die Pause beendet, hängt von
   # der gewählten Logik ab — das Gate am Aktions-Anfang sortiert den jeweils
@@ -1150,7 +1198,7 @@ triggers:
       - "tilted"
       - "Tilted"
     for:
-      seconds: 2
+      seconds: !input window_reaction_delay
     id: mosquito_lights
     enabled: !input mosquito_enabled
 
@@ -1897,13 +1945,24 @@ actions:
           # überschreibt Kippen→Öffnen den Snapshot mit der Kipp-Position. Nach
           # unavailable/unknown nur sichern, wenn noch KEIN Snapshot existiert:
           # nach einem HA-Neustart fehlt er (Szene weg), aber bei einem Sensor-Blip
-          # am offenen Fenster würde er sonst mit der Offen-Position überschrieben
+          # am offenen Fenster würde er sonst mit der Offen-Position überschrieben.
+          # Sonderfall Fenstergriff-Sensoren: Beim Drehen von zu nach gekippt melden
+          # sie kurz "offen". Ein "offen", das kürzer als die Reaktionszeit anlag und
+          # in "gekippt" übergeht, zählt deshalb wie "geschlossen". Bewusst nur diese
+          # Richtung: Ein kurzes Zwischen-"gekippt" (offen -> gekippt -> offen) zählt
+          # nicht. Restfall gekippt -> kurz offen -> gekippt: Dann wird die
+          # Kipp-Position gemerkt (siehe Bekannte Grenzen in der Doku)
           - if:
               - >-
                 {{ trigger.from_state is not none
                    and ((trigger.from_state.state | lower) in ['off', 'closed']
                         or (trigger.from_state.state in ['unavailable', 'unknown']
-                            and expand(reclose_scene) | count == 0)) }}
+                            and expand(reclose_scene) | count == 0)
+                        or ((trigger.from_state.state | lower) in ['on', 'open']
+                            and (trigger.to_state.state | lower) == 'tilted'
+                            and as_timestamp(trigger.to_state.last_changed)
+                                - as_timestamp(trigger.from_state.last_changed)
+                                < window_reaction_delay | float(2))) }}
             then:
               - action: scene.create
                 data:
@@ -1929,26 +1988,44 @@ actions:
                   # Bei aktiver erzwungener Beschattung bleibt der Rollladen unten
                   - "{{ not (force_shading and shading_status_helper is string and is_state(shading_status_helper, 'on')) }}"
                 sequence:
+                  # Bei 100 % (bisheriges Verhalten) oder ohne Positions-Attribut ganz
+                  # öffnen, sonst nur aufwärts auf die eingestellte Position fahren.
                   # Bei Frost nur bis zur schonenden Maximal-Position öffnen
-                  - if:
-                      - "{{ frost_active and state_attr(cover_entity, 'current_position') is not none }}"
-                    then:
-                      - if:
-                          - "{{ state_attr(cover_entity, 'current_position') | int(101) < frost_max_position | int(100) }}"
-                        then:
+                  - variables:
+                      open_target: >-
+                        {% if frost_active %}
+                          {{ [open_position | int(100), frost_max_position | int(100)] | min }}
+                        {% else %}
+                          {{ open_position | int(100) }}
+                        {% endif %}
+                      open_full: >-
+                        {{ open_target | int(100) >= 100
+                           or state_attr(cover_entity, 'current_position') is none }}
+                      open_partial: >-
+                        {{ not open_full
+                           and state_attr(cover_entity, 'current_position') | int(101) < open_target | int(100) }}
+                  - choose:
+                      - conditions:
+                          - "{{ open_full }}"
+                        sequence:
+                          - action: cover.open_cover
+                            target:
+                              entity_id: !input cover
+                      - conditions:
+                          - "{{ open_partial }}"
+                        sequence:
                           - action: cover.set_cover_position
                             target:
                               entity_id: !input cover
                             data:
-                              position: !input frost_max_position
-                    else:
-                      - action: cover.open_cover
-                        target:
-                          entity_id: !input cover
+                              position: "{{ open_target }}"
                   # Beschattungs-Status freigeben: Das Öffnen fürs Lüften ist kein
                   # manueller Eingriff — nach dem Schließen (oder Timeout) darf der
-                  # nächste Tick wieder beschatten, statt bis Tagesende zu pausieren
+                  # nächste Tick wieder beschatten, statt bis Tagesende zu pausieren.
+                  # Ohne Fahrt (Rollladen stand schon höher) bleibt der Status, damit
+                  # das Beschattungs-Ende den Rollladen weiterhin regulär öffnet
                   - if:
+                      - "{{ open_full or open_partial }}"
                       - "{{ shading_status_helper is string and is_state(shading_status_helper, 'on') }}"
                     then:
                       - action: input_boolean.turn_off
@@ -1974,7 +2051,7 @@ actions:
                   - "closed"
                   - "Closed"
                 for:
-                  seconds: 2
+                  seconds: !input window_reaction_delay
             timeout:
               minutes: !input reclose_timeout
             continue_on_timeout: true

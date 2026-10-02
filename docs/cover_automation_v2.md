@@ -58,7 +58,7 @@ Fenster, bis der Helfer gesetzt oder das Feature deaktiviert ist.
 | Feature             | Was es tut                                                                                                                                                               | Voraussetzung                                                        |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
 | Morgens öffnen      | Fährt zur eingestellten Uhrzeit und/oder zum Sonnenaufgang auf die Zielposition (nur wenn geschlossener); optional erst bei der ersten Bewegung im Raum                  | `input_datetime`-Helfer (nur Uhrzeit) und/oder Sonnenaufgangs-Option |
-| Fenster-Interaktion | Kippen → Lüftungsposition, Öffnen → ganz auf (optional: wie Kippen behandeln); nach dem Schließen zurück in die Ausgangsposition                                         | Fenstersensor                                                        |
+| Fenster-Interaktion | Kippen → Lüftungsposition, Öffnen → ganz auf/Wunschposition (optional: wie Kippen behandeln); nach dem Schließen zurück in die Ausgangsposition; Reaktionszeit wählbar   | Fenstersensor                                                        |
 | Nachtmodus          | Schließt beim Einschalten des Helfers (wahlweise auf eine Nacht-Zielposition statt ganz zu); offene/gekippte Fenster bekommen eine Lüftungsposition                      | `input_boolean`, Zeitplan oder Binärsensor                           |
 | Sturmschutz         | Fährt bei Starkwind hoch (oder im Panzer-Modus herunter)                                                                                                                 | Wetter-Entität oder Wind-Sensor                                      |
 | Sonnenschutz        | Beschattet anhand des Sonnenstands so, dass die Sonne höchstens X m in den Raum fällt; öffnet nach Ende wieder; optional an eine Freigabe-Entität (PV, Lux, …) gekoppelt | Status-Helfer, Geometrie, Temperaturquelle                           |
@@ -207,13 +207,28 @@ die Einmal-Logik des Sonnenheizens und die Eingriffs-Erkennung auf.
 - **Wetterlagen-Filter:** Flattert das Wetter zwischen zwei _nicht_ erlaubten Lagen
   (z. B. Regen ↔ Starkregen), beendet erst Sonnenstand oder Temperatur die
   Beschattung. Der Filter beendet nur bei mindestens 10 Minuten stabil schlechter Lage.
-- **Cover ohne Positions-Angabe** (nur auf/zu): Morgens-Öffnen funktioniert,
-  Kipp-Position, Beschattung, Nacht-Zielposition und Frost-Begrenzung werden
-  übersprungen — sie brauchen Positionsdaten.
+- **Cover ohne Positions-Angabe** (nur auf/zu): Morgens-Öffnen funktioniert, und
+  beim Öffnen des Fensters fährt der Rollladen immer ganz auf. Kipp-Position,
+  Position bei geöffnetem Fenster, Beschattung, Nacht-Zielposition und
+  Frost-Begrenzung werden übersprungen — sie brauchen Positionsdaten.
 - **Windgeschwindigkeit** wird roh mit dem Grenzwert verglichen — liefert deine Quelle
   m/s statt km/h, muss der Grenzwert entsprechend gesetzt werden.
 - **Sturm-Ende:** Nach dem Sturm bleibt der Rollladen in der Schutzposition, bis das
   nächste reguläre Ereignis (Nachtmodus, Morgens, Beschattung) ihn übernimmt.
+- **Reaktionszeit und Benachrichtigungen:** Die Reaktionszeit verzögert nur das
+  Abräumen der Meldung nach dem Schließen. Wann eine "Fenster zu lange
+  offen/gekippt"-Meldung verschickt wird, bestimmen weiterhin allein deren eigene
+  Wartezeiten (in Minuten ab dem Öffnen).
+- **Kurz zu, gleich wieder auf:** Wird das Fenster kürzer als die Reaktionszeit
+  geschlossen und dann wieder geöffnet, wertet die Automation das als neues
+  Öffnen und merkt sich die gerade aktuelle (schon geöffnete) Position als
+  Ausgangsposition. Nach dem endgültigen Schließen bleibt der Rollladen dann
+  oben, statt zurückzufahren. Je größer die Reaktionszeit, desto eher passiert das.
+- **Kurz offen zwischen zweimal Kippen:** Wird ein gekipptes Fenster kürzer als die
+  Reaktionszeit ganz geöffnet und wieder gekippt, hält die Automation das für den
+  Griff-Dreh von "zu" nach "gekippt" und merkt sich die gerade aktuelle
+  Kipp-Position als Ausgangsposition. Nach dem Schließen fährt der Rollladen dann auf
+  die Kipp-Position statt auf die ursprüngliche.
 - **Bewegungs-Öffnen** reagiert auf jede Bewegung, solange seine Bedingungen stimmen:
   Wird der Rollladen tagsüber von Hand wieder komplett geschlossen und dann der Raum
   betreten, öffnet er erneut. Wer das nicht will, nutzt den Pausier-Helfer.
@@ -232,7 +247,8 @@ Home-Assistant-Konvention: 100 % = ganz offen, 0 % = ganz geschlossen. Die Proze
 sind dabei die Werte deines Cover-Aktors, also Motor-Laufweg — nicht zwingend
 Glasfläche. Für die Beschattung lässt sich dieser Unterschied über die
 Glas-Kalibrierung (siehe oben) ausgleichen; alle anderen Positions-Eingaben
-(morgens, Kipp-Position, Nachtlüftung) sind bewusst direkte Aktor-Werte.
+(morgens, Kipp-Position, geöffnetes Fenster, Nachtlüftung) sind bewusst direkte
+Aktor-Werte.
 
 **Ich habe gar keinen Fenstersensor — geht das?** Ja, das Feld einfach leer lassen.
 Morgens-Öffnen, Nachtmodus, Sturmschutz, Beschattung, Sonnenheizen und Frostschutz
@@ -310,6 +326,37 @@ gekippt?** Dafür gibt es in der Fenster-Interaktion den Schalter "Öffnen wie K
 behandeln": Jedes "offen" gilt dann als "gekippt" — der Rollladen fährt auf die
 Kipp-Position statt komplett auf, und die Beschattung läuft weiter, statt zu
 pausieren. Typischer Fall: das Badfenster mit einfachem binärem Kontakt.
+
+**Der Rollladen soll beim Öffnen nicht ganz hochfahren — z. B. als Durchgang für
+die Katze?** Dafür gibt es in der Fenster-Interaktion die "Position bei geöffnetem
+Fenster" (Standard 100 % = ganz auf). Stell sie z. B. auf 25 %: Wird das Fenster
+komplett geöffnet, fährt der Rollladen nur bis dorthin — und nur nach oben; steht
+er schon höher, bleibt er stehen. Nachts (Nachtmodus an) gilt stattdessen die
+"Nachtposition bei offenem Fenster" im Abschnitt Nachtmodus — für die Katze dort
+ebenfalls eine passende Höhe wählen. Ohne Nachtmodus-Helfer gilt die Position bei
+geöffnetem Fenster rund um die Uhr. ⚠️ Bei Balkon- und Terrassentüren muss die
+Position hoch genug zum Durchgehen sein.
+
+**Ich öffne das Fenster nur kurz (Blumen gießen) — muss der Rollladen jedes Mal
+hochfahren?** Nein: Die "Reaktionszeit" in der Fenster-Interaktion legt fest, wie
+lange das Fenster unverändert offen bzw. gekippt sein muss, bevor der Rollladen
+reagiert — und wie lange es nach dem Lüften geschlossen sein muss, bevor er
+zurückfährt. Standard sind 2 Sekunden, das filtert nur prellende Kontakte. Mit
+z. B. 30 Sekunden bleibt der Rollladen beim kurzen Öffnen einfach stehen. Die
+Kehrseite: Bei Balkon- und Terrassentüren dauert es entsprechend länger, bis der
+Rollladen hochfährt. Die Reaktionszeit gilt auch für den Moskito-Modus und das
+Abräumen der Benachrichtigung, nicht aber für die Wartezeit, nach der eine
+Benachrichtigung verschickt wird.
+
+**Beim Kippen fährt der Rollladen erst ganz hoch — warum?** Viele Fenstergriff-
+Sensoren (z. B. mit Drehwinkel-Erkennung) melden beim Drehen des Griffs von "zu" auf
+"gekippt" für 2–3 Sekunden "offen", weil der Griff dabei die waagerechte
+Offen-Stellung durchläuft. Ist die Reaktionszeit kürzer, reagiert die Automation auf
+dieses kurze "offen" und fährt den Rollladen ganz hoch, bevor "gekippt" ankommt.
+Abhilfe: Reaktionszeit auf 5 Sekunden stellen. Die Ausgangsposition fürs spätere
+Zurückfahren wird trotzdem korrekt gemerkt — ein kurzes "offen" (kürzer als die
+Reaktionszeit), auf das "gekippt" folgt, zählt dafür wie "geschlossen". Wie lange dein
+Sensor "offen" meldet, zeigt der Verlauf des Fenstersensors.
 
 **Kann ich die Automation zeitweise anhalten?** Ja — im Abschnitt "Pausieren" einen
 oder mehrere `input_boolean`-Helfer auswählen. Die Logik ist wählbar: "AN
