@@ -785,6 +785,39 @@ blueprint:
           default: false
           selector:
             boolean: {}
+    emergency_section:
+      name: Notfall-Öffnen
+      description: >
+        Fährt den Rollladen im Notfall sofort ganz auf — z.B. bei Feueralarm
+        (Fluchtweg und Zugang für die Feuerwehr) oder bei einer Hagelwarnung
+        (Behang vor Hagel schützen).
+      icon: mdi:fire-alert
+      collapsed: true
+      input:
+        emergency_sensors:
+          name: Notfall-Sensoren (optional)
+          description: >
+            Ein oder mehrere binäre Sensoren oder input_boolean-Helfer, z.B. Rauch-
+            oder CO-Melder oder eine Hagelwarnung. Sobald einer davon "an" meldet,
+            fährt der Rollladen ganz auf und bleibt oben, solange einer aktiv ist:
+            In dieser Zeit bewegt die Automatik ihn nicht (weder Nachtmodus noch
+            Beschattung, Sturmschutz, Zurückfahren nach dem Lüften oder der
+            "Rollladen schließen"-Knopf einer Benachrichtigung), und der
+            Moskito-Modus schaltet keine Lichter aus. Nicht verfügbare Sensoren
+            zählen nicht als Alarm. Sind alle wieder aus, wird ein inzwischen
+            aktiver Nachtmodus nachgeholt. Leer lassen = kein Notfall-Öffnen
+            (bisheriges Verhalten).
+            ⚠️ Achtung: Das Öffnen hat Vorrang vor allem anderen — auch vor
+            Pause, Fensterzustand, Sturmschutz (inkl. Panzer-Modus) und
+            Frostschutz. Der Rollladen fährt also auch bei offenem Fenster, bei
+            Starkwind und bei Frost ganz hoch.
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: binary_sensor
+                - domain: input_boolean
     frost_section:
       name: Frostschutz
       description: >
@@ -792,7 +825,7 @@ blueprint:
         Führungsschiene fest — fährt der Motor dann auf Anschlag, können Gurt
         oder Lamellen reißen. Der Frostschutz begrenzt deshalb alle
         automatischen AUFWÄRTS-Fahrten (morgens, Lüften, Sonnenheizen, Sturm)
-        auf eine schonende Maximal-Position, solange es friert. Schließen ist
+        auf eine schonende Maximal-Position, solange es friert (außer Notfall-Öffnen). Schließen ist
         immer erlaubt. Aktiv, sobald ein Temperatursensor ausgewählt ist.
       icon: mdi:snowflake-thermometer
       collapsed: true
@@ -826,7 +859,7 @@ blueprint:
         frost_max_position:
           name: Maximale Öffnungsposition bei Frost
           description: >
-            Höher als bis zu dieser Position fährt keine automatische Fahrt,
+            Höher als bis zu dieser Position fährt keine automatische Fahrt (außer Notfall-Öffnen),
             solange es friert — die letzten Prozent reißen den festgefrorenen
             Panzer sonst vom Fensterbrett bzw. ziehen ihn gegen den Anschlag.
           default: 90
@@ -853,13 +886,14 @@ blueprint:
             keine Fahrten, keine Lichter, keine Meldungen. Ob dafür der ein- oder
             ausgeschaltete Zustand zählt, legst du im nächsten Feld fest; bei
             mehreren Helfern pausiert die Automatik nur, wenn ALLE gleichzeitig
-            im Pausier-Zustand sind. Zwei Ausnahmen: Der Sturmschutz greift
-            weiterhin (Hardware-Schutz geht vor), und der "Rollladen schließen"-Knopf
-            einer Benachrichtigung funktioniert wie der Wandtaster — bewusste
-            Befehle werden nicht blockiert. Beim Ende der Pause wird ein inzwischen
-            aktiver Nachtmodus nachgeholt und die Beschattung neu bewertet;
-            verpasste Einzelereignisse (z.B. das morgendliche Öffnen oder das
-            Zurückfahren nach dem Lüften) werden nicht nachgeholt.
+            im Pausier-Zustand sind. Ausnahmen: Notfall-Öffnen und Sturmschutz
+            greifen weiterhin (Sicherheit und Hardware-Schutz gehen vor), und der
+            "Rollladen schließen"-Knopf einer Benachrichtigung funktioniert wie
+            der Wandtaster — bewusste Befehle werden nicht blockiert. Beim Ende
+            der Pause wird ein inzwischen aktiver Nachtmodus nachgeholt und die
+            Beschattung neu bewertet; verpasste Einzelereignisse (z.B. das
+            morgendliche Öffnen oder das Zurückfahren nach dem Lüften) werden
+            nicht nachgeholt.
           default: []
           selector:
             entity:
@@ -1007,6 +1041,13 @@ variables:
     {{ helpers | length > 0
        and found | length > 0
        and found | rejectattr('state', 'eq', pausing) | list | length == 0 }}
+  emergency_sensors: !input emergency_sensors
+  # Notfall aktiv = mindestens ein Sensor meldet 'on'; unavailable/unknown zählen
+  # nicht als Alarm. Bewusst ohne expand(), damit Gruppen-Sensoren ihren eigenen
+  # Zustand behalten, statt in ihre Mitglieder aufgelöst zu werden
+  emergency_active: >-
+    {% set sensors = [emergency_sensors] if emergency_sensors is string else emergency_sensors %}
+    {{ sensors | select('is_state', 'on') | list | length > 0 }}
   sleep_mode_boolean: !input sleep_mode_boolean
   use_area_name: !input use_area_name
   notification_timeout: !input notification_timeout
@@ -1128,6 +1169,23 @@ triggers:
     above: !input wind_speed_threshold
     id: storm_detected
     enabled: !input storm_enabled
+  # Feuern pro Sensor — ob der Notfall insgesamt vorbei ist, prüft der Zweig.
+  # Ende nur bei echtem 'off': ein Sensor, der im Alarm unavailable wird (z.B.
+  # ein Rauchmelder im Brand), soll keine Nacht-Schließfahrt auslösen
+  - trigger: state
+    entity_id: !input emergency_sensors
+    to: "on"
+    id: emergency_open
+  - trigger: state
+    entity_id: !input emergency_sensors
+    from: "on"
+    to: "off"
+    id: emergency_ended
+  # Ein Alarm, der schon während des Hochfahrens anlag, löst keinen sichtbaren
+  # Zustandswechsel aus — beim Start daher einmal prüfen (Zweig prüft den Alarm)
+  - trigger: homeassistant
+    event: start
+    id: emergency_open
   - trigger: event
     event_type: mobile_app_notification_action
     event_data:
@@ -1155,11 +1213,20 @@ triggers:
     enabled: !input mosquito_enabled
 
 actions:
-  # Pausier-Helfer: hält die AUTOMATIK an, mit drei Ausnahmen — Sturmschutz
-  # (Hardware-Schutz geht vor), Benachrichtigungs-Aufräumen (bewegt nichts) und
-  # der Notification-Knopf (ein bewusster Nutzer-Befehl, wie der Wandtaster)
+  # Notfall: Solange ein Notfall-Sensor 'on' meldet, bewegt die Automatik nichts
+  # und schaltet keine Lichter. Durch dürfen nur die Notfall-Trigger selbst und
+  # die Benachrichtigungen samt Abräumen (bewegen nichts; das Nacht-Nachholen
+  # im Abräum-Zweig prüft den Notfall selbst)
   - condition: >-
-      {{ trigger.id | default('') in ['storm_detected', 'window_closed', 'close_shutter_action']
+      {{ trigger.id | default('') in ['emergency_open', 'emergency_ended', 'window_open_long', 'window_tilted_long', 'window_closed']
+         or not emergency_active }}
+  # Pausier-Helfer: hält die AUTOMATIK an, mit fünf Ausnahmen — Notfall-Öffnen
+  # (Sicherheit geht vor), Sturmschutz (Hardware-Schutz geht vor),
+  # Benachrichtigungs-Aufräumen (bewegt nichts), der Notification-Knopf
+  # (ein bewusster Nutzer-Befehl, wie der Wandtaster) und das Notfall-Ende
+  # (holt in der Pause nur das Panzer-Schließen bei Sturm nach)
+  - condition: >-
+      {{ trigger.id | default('') in ['emergency_open', 'emergency_ended', 'storm_detected', 'window_closed', 'close_shutter_action']
          or not pause_active }}
   - choose:
       # --- MORGENS ÖFFNEN (Uhrzeit, Sonnenaufgang oder Bewegung) ---
@@ -1461,6 +1528,120 @@ actions:
                       - action: cover.close_cover
                         target:
                           entity_id: !input cover
+
+      # --- NOTFALL-ÖFFNEN ---
+      - conditions:
+          - condition: trigger
+            id: emergency_open
+          # Für den Start-Trigger: nur bei tatsächlich anliegendem Alarm
+          - "{{ emergency_active }}"
+        sequence:
+          # Fluchtweg bzw. Behangschutz geht vor allem: öffnen ohne Rücksicht auf
+          # Fenster, Nachtmodus, Sturm (auch Panzer-Modus), Beschattung und Pause.
+          # Bewusst auch ohne Frost-Begrenzung: Ein teilgeöffneter Rollladen ist
+          # kein Fluchtweg — ein gerissener Gurt ist im Brandfall das kleinere Übel.
+          # Im Notfall zuerst fahren, dann aufräumen
+          - action: cover.open_cover
+            target:
+              entity_id: !input cover
+          # Status-Helfer freigeben: Nach dem Notfall sollen Beschattung und
+          # Sonnenheizen frisch bewerten, statt die Notfall-Fahrt als manuellen
+          # Eingriff zu werten bzw. an einem Alt-Zustand festzuhalten
+          - if:
+              - "{{ shading_status_helper is string and is_state(shading_status_helper, 'on') }}"
+            then:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: "{{ shading_status_helper }}"
+          - if:
+              - "{{ solar_heating_status_helper is string and is_state(solar_heating_status_helper, 'on') }}"
+            then:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: "{{ solar_heating_status_helper }}"
+
+      # --- NOTFALL BEENDET: NACHTMODUS NACHHOLEN ---
+      - conditions:
+          - condition: trigger
+            id: emergency_ended
+          # Der Trigger feuert pro Sensor: nur nachholen, wenn ALLE wieder 'off'
+          # melden — ein im Alarm ausgefallener (unavailable) Sensor verhindert
+          # die Nacht-Schließfahrt
+          - >-
+            {% set sensors = [emergency_sensors] if emergency_sensors is string else emergency_sensors %}
+            {{ sensors | reject('is_state', 'off') | list | length == 0 }}
+        sequence:
+          # Wie beim Pause-Ende: Ein während des Notfalls verpasster Nachtmodus
+          # wird nachgeholt, Sturm hat Vorrang (im Panzer-Modus wird das vom
+          # Notfall verhinderte Schließen nachgeholt). Die Beschattung bewertet der
+          # nächste Tick neu (Status-Helfer wurde beim Öffnen freigegeben).
+          # In einer Pause wird nur das Panzer-Schließen nachgeholt (der
+          # Sturmschutz durchbricht die Pause) — den Nachtmodus holt dann das
+          # Pause-Ende nach
+          - variables:
+              wind_now: >-
+                {% if storm_wind_sensor is string %}
+                  {{ states(storm_wind_sensor) | float(0) }}
+                {% elif weather_entity is string %}
+                  {{ state_attr(weather_entity, 'wind_speed') | float(0) }}
+                {% else %}
+                  0
+                {% endif %}
+          - choose:
+              # Sturm hält an: Im Panzer-Modus das Schließen nachholen (gleiche
+              # Fenster-Regel wie beim Sturmschutz) — der Sturm-Trigger feuert erst
+              # beim nächsten Überschreiten der Schwelle wieder. Ohne Panzer-Modus
+              # bleibt der Rollladen oben, wo der Sturmschutz ihn ohnehin haben will
+              - conditions:
+                  - "{{ storm_enabled and (wind_now | float(0)) >= wind_speed_threshold }}"
+                sequence:
+                  - if:
+                      - "{{ panzer_mode }}"
+                      - >-
+                        {{ force_storm_action
+                           or window_sensor is not string
+                           or (states(window_sensor) | lower) in ['off', 'closed'] }}
+                    then:
+                      - action: cover.close_cover
+                        target:
+                          entity_id: !input cover
+              - conditions:
+                  - "{{ not pause_active }}"
+                  - "{{ night_mode_boolean is string and is_state(night_mode_boolean, 'on') }}"
+                sequence:
+                  - choose:
+                      - conditions:
+                          - >-
+                            {{ window_sensor is string
+                               and ((states(window_sensor) | lower) == 'tilted'
+                                    or (treat_open_as_tilted and (states(window_sensor) | lower) in ['on', 'open'])) }}
+                        sequence:
+                          - action: cover.set_cover_position
+                            target:
+                              entity_id: !input cover
+                            data:
+                              position: !input tilted_position
+                      - conditions:
+                          - "{{ window_sensor is string and (states(window_sensor) | lower) in ['on', 'open'] }}"
+                        sequence:
+                          - action: cover.set_cover_position
+                            target:
+                              entity_id: !input cover
+                            data:
+                              position: !input night_ventilation_position
+                    default:
+                      - if:
+                          - "{{ night_position | int(0) > 0 and state_attr(cover_entity, 'current_position') is not none }}"
+                        then:
+                          - action: cover.set_cover_position
+                            target:
+                              entity_id: !input cover
+                            data:
+                              position: !input night_position
+                        else:
+                          - action: cover.close_cover
+                            target:
+                              entity_id: !input cover
 
       # --- SONNENSCHUTZ ---
       - conditions:
@@ -1861,6 +2042,9 @@ actions:
                    and (trigger.from_state.state | lower) in ['on', 'open', 'tilted'] }}
               - "{{ not pause_active }}"
               - "{{ not (storm_enabled and not panzer_mode and (wind_now | float(0)) >= wind_speed_threshold) }}"
+              # Auch das Notfall-Gate lässt window_closed fürs Aufräumen durch —
+              # im Notfall bleibt der Rollladen oben, das Notfall-Ende holt nach
+              - "{{ not emergency_active }}"
             then:
               - if:
                   - "{{ night_position | int(0) > 0 and state_attr(cover_entity, 'current_position') is not none }}"
@@ -1975,6 +2159,11 @@ actions:
                   - "Closed"
                 for:
                   seconds: 2
+              # Ein Notfall beendet das Warten sofort (Auswertung unten)
+              - trigger: state
+                entity_id: !input emergency_sensors
+                to: "on"
+                id: emergency_during_wait
             timeout:
               minutes: !input reclose_timeout
             continue_on_timeout: true
@@ -1989,6 +2178,11 @@ actions:
                 {{ helpers | length > 0
                    and found | length > 0
                    and found | rejectattr('state', 'eq', pausing) | list | length == 0 }}
+              # Notfall während des Wartens begonnen oder gerade aktiv
+              emergency_now: >-
+                {% set sensors = [emergency_sensors] if emergency_sensors is string else emergency_sensors %}
+                {{ (wait.trigger is not none and wait.trigger.id == 'emergency_during_wait')
+                   or sensors | select('is_state', 'on') | list | length > 0 }}
               wind_now: >-
                 {% if storm_wind_sensor is string %}
                   {{ states(storm_wind_sensor) | float(0) }}
@@ -1998,6 +2192,10 @@ actions:
                   0
                 {% endif %}
               storm_now: "{{ storm_enabled and (wind_now | float(0)) >= wind_speed_threshold }}"
+          # Ein Notfall beendet den Lüften-Lauf endgültig: Der Notfall-Zweig hat
+          # geöffnet — kein Zurückfahren und kein erzwungenes Schließen, auch
+          # nicht nach dem Ende des Alarms
+          - condition: "{{ not emergency_now }}"
           - if:
               - "{{ wait.trigger is none }}"
             then:

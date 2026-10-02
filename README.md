@@ -17,7 +17,8 @@ ist der Rollladen; der Fenstersensor ist optional (festverglaste Fenster!).
 - Fenster-Interaktion (offen/gekippt → Position, mit Rückfahr-Logik)
 - Nachtmodus inkl. Lüftungsposition bei offenem Fenster und optionaler
   Nacht-Zielposition; Helfer darf input_boolean, Schedule oder Binärsensor sein
-- Sturmschutz (Wetter-Entität oder Wind-Sensor, optionaler Panzer-Modus) — hat immer Vorrang
+- Sturmschutz (Wetter-Entität oder Wind-Sensor, optionaler Panzer-Modus) — hat Vorrang vor allem außer dem Notfall-Öffnen
+- Notfall-Öffnen bei Rauch-/CO-Alarm oder Hagelwarnung (fährt auf und lässt den Rollladen oben, bis alle Sensoren wieder aus sind)
 - Sonnenschutz/Beschattung anhand des Sonnenstands (Fenster-Geometrie, Temperatur-Schwelle
   mit Hysterese, optionaler Wetterlagen-Filter und Freigabe-Entität für PV/Lux/eigene
   Bedingungen, erkennt manuelle Eingriffe)
