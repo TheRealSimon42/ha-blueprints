@@ -143,6 +143,30 @@ blueprint:
               step: 1
               mode: slider
               unit_of_measurement: "%"
+        morning_soft_duration:
+          name: Sanftes Öffnen über
+          description: >
+            Sanftes Wecken, z.B. fürs Schlafzimmer: Statt in einem Zug fährt der
+            Rollladen in Schritten von der aktuellen Position zur Zielposition,
+            gleichmäßig über diese Dauer verteilt (Schritte von mindestens 5 %,
+            höchstens einer pro Minute — der erste zur Weckzeit, der letzte genau
+            auf die Zielposition). Das sanfte Öffnen bricht ab und der Rest wird
+            nicht mehr gefahren, wenn der Rollladen zwischendurch von Hand bewegt
+            wird, Sturm aufkommt, die Automation pausiert, der Nachtmodus wieder
+            eingeschaltet, das Fenster geöffnet/gekippt wird oder die Beschattung
+            einsetzt. Braucht einen
+            Rollladen mit Positionsangabe — ohne wird wie bisher in einem Zug
+            geöffnet. Das Öffnen bei Bewegung (siehe oben) fährt immer in einem
+            Zug, dann ist ja schon jemand im Raum. 0 = in einem Zug öffnen
+            (bisheriges Verhalten).
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 60
+              step: 1
+              mode: slider
+              unit_of_measurement: Minuten
     window_interaction_section:
       name: Fenster-Interaktion
       description: Wie der Rollladen auf geöffnete oder gekippte Fenster reagiert.
@@ -950,6 +974,7 @@ variables:
   morning_sun_offset: !input morning_sun_offset
   morning_motion_sensor: !input morning_motion_sensor
   morning_position: !input morning_position
+  morning_soft_duration: !input morning_soft_duration
   night_mode_boolean: !input night_mode_boolean
   night_position: !input night_position
   night_ventilation_position: !input night_ventilation_position
@@ -1255,7 +1280,124 @@ actions:
                   {{ morning_position | int(100) }}
                 {% endif %}
           - condition: "{{ not storm_enabled or (wind_now | float(0)) < wind_speed_threshold }}"
+          # Ein Lüftungs-Snapshot aus der Nacht ist ab jetzt veraltet: Ohne
+          # diese Bereinigung würde das Fenster-Zurückfahren den Rollladen
+          # nach dem Schließen wieder auf die alte Nacht-Position ziehen.
+          # Vor dem Öffnen gelöscht, nicht danach: Beim sanften Wecken würde das
+          # Löschen am Ende sonst einen Snapshot treffen, den die Fenster-
+          # Interaktion während des Weckens (Fenster gekippt) frisch angelegt hat
+          - if:
+              - "{{ expand('scene.reclose_' ~ (cover_entity | slugify)) | count > 0 }}"
+            then:
+              - action: scene.delete
+                target:
+                  entity_id: "{{ 'scene.reclose_' ~ (cover_entity | slugify) }}"
+          # Sanftes Wecken: Startzeitpunkt dieses Laufs für die Beschattungs-
+          # Freigabe am Ende (trigger.now gibt es nur beim Uhrzeit-Trigger)
+          - variables:
+              morning_started: "{{ as_timestamp(now()) }}"
           - choose:
+              # Sanftes Wecken: in Schritten zur Zielposition statt in einem Zug.
+              # Nicht beim Öffnen per Bewegung: Dann ist schon jemand im Raum und
+              # will Licht — und jede weitere Bewegung während des Weckens würde
+              # (Rollladen noch fast zu) einen zweiten Weck-Lauf starten
+              - conditions:
+                  - "{{ morning_soft_duration | int(0) > 0 }}"
+                  - "{{ trigger.id != 'morning_motion' }}"
+                  - "{{ state_attr(cover_entity, 'current_position') is not none }}"
+                  - "{{ state_attr(cover_entity, 'current_position') | int(101) < morning_target | int(100) }}"
+                sequence:
+                  # Alte Beschattungs-Episode gleich zu Beginn freigeben (wie beim
+                  # Öffnen in einem Zug) — eine während des Weckens neu startende
+                  # Beschattung übernimmt dann und beendet das Wecken
+                  - if:
+                      - "{{ shading_status_helper is string and is_state(shading_status_helper, 'on') }}"
+                    then:
+                      - action: input_boolean.turn_off
+                        target:
+                          entity_id: "{{ shading_status_helper }}"
+                  - variables:
+                      soft_started: "{{ as_timestamp(now()) }}"
+                      # Fahrplan: Schritte von mindestens 5 %, höchstens einer pro
+                      # Minute (Motorschonung); der letzte fährt exakt die Zielposition an
+                      soft_plan: >-
+                        {%- set start = state_attr(cover_entity, 'current_position') | int(0) -%}
+                        {%- set target = morning_target | int(100) -%}
+                        {%- set n = [[morning_soft_duration | int(0) + 1, ((target - start) / 5) | int] | min, 1] | max -%}
+                        {%- set ns = namespace(plan=[]) -%}
+                        {%- for i in range(1, n) -%}
+                          {%- set ns.plan = ns.plan + [(start + (target - start) * i / n) | round(0) | int] -%}
+                        {%- endfor -%}
+                        {{ ns.plan + [target] }}
+                      # Erster Schritt sofort, der letzte nach Ablauf der Dauer
+                      soft_interval: >-
+                        {{ (morning_soft_duration | int(0) * 60 / ([soft_plan | length - 1, 1] | max)) | round(0) | int }}
+                  - repeat:
+                      sequence:
+                        - action: cover.set_cover_position
+                          target:
+                            entity_id: !input cover
+                          data:
+                            position: "{{ soft_plan[repeat.index - 1] }}"
+                        - if:
+                            - "{{ repeat.index < soft_plan | length }}"
+                          then:
+                            - delay:
+                                seconds: "{{ soft_interval }}"
+                            # Erst prüfen, wenn der Rollladen steht — mitten in einer
+                            # Fahrt ist die gemeldete Position noch nicht aussagekräftig
+                            - wait_template: "{{ not is_state(cover_entity, 'opening') and not is_state(cover_entity, 'closing') }}"
+                              timeout:
+                                minutes: 2
+                      # Nach jedem Schritt die Welt neu bewerten. Abbruch (Rest wird
+                      # nicht mehr gefahren), sobald etwas anderes übernimmt. Alles
+                      # direkt hier ausgewertet: Variablen aus dem Schleifen-Inneren
+                      # sind für "until" nicht sichtbar. repeat.index ist 1-basiert:
+                      # soft_plan[repeat.index - 1] = zuletzt befohlene Position
+                      until:
+                        - condition: or
+                          conditions:
+                            # Fahrplan fertig
+                            - "{{ repeat.index >= soft_plan | length }}"
+                            # Fährt immer noch (Fremdbefehl) oder steht um mindestens eine
+                            # Schrittweite (5 %) woanders als befohlen: Handbetätigung oder
+                            # eine andere Automatik (auch "einen Schritt zurück" zählt)
+                            - "{{ is_state(cover_entity, 'opening') or is_state(cover_entity, 'closing') }}"
+                            - "{{ (state_attr(cover_entity, 'current_position') | int(-100) - soft_plan[repeat.index - 1] | int) | abs >= 5 }}"
+                            # Sturm hat Vorrang
+                            - >-
+                              {% if storm_wind_sensor is string %}
+                                {% set wind = states(storm_wind_sensor) | float(0) %}
+                              {% elif weather_entity is string %}
+                                {% set wind = state_attr(weather_entity, 'wind_speed') | float(0) %}
+                              {% else %}
+                                {% set wind = 0 %}
+                              {% endif %}
+                              {{ storm_enabled and wind >= wind_speed_threshold }}
+                            # Pause inzwischen aktiv
+                            - >-
+                              {% set helpers = [pause_boolean] if pause_boolean is string else pause_boolean %}
+                              {% set pausing = 'on' if pause_mode == 'on_pauses' else 'off' %}
+                              {% set found = expand(helpers) | list %}
+                              {{ helpers | length > 0
+                                 and found | length > 0
+                                 and found | rejectattr('state', 'eq', pausing) | list | length == 0 }}
+                            # Nachtmodus seit Weckbeginn (wieder) eingeschaltet — war er
+                            # beim Start noch an, stört das nicht (wie beim Öffnen in einem Zug)
+                            - >-
+                              {{ night_mode_boolean is string and is_state(night_mode_boolean, 'on')
+                                 and as_timestamp(states[night_mode_boolean].last_changed) > soft_started }}
+                            # Fenster seit Weckbeginn geöffnet/gekippt: Fenster-Interaktion
+                            # übernimmt (über Nacht gekippt zählt nicht)
+                            - >-
+                              {{ window_sensor is string
+                                 and (states(window_sensor) | lower) in ['on', 'open', 'tilted']
+                                 and as_timestamp(states[window_sensor].last_changed) > soft_started }}
+                            # Beschattung hat seit Weckbeginn eingesetzt und übernimmt —
+                            # sonst hielte sie die weiteren Schritte für Handeingriffe
+                            - >-
+                              {{ shading_status_helper is string and is_state(shading_status_helper, 'on')
+                                 and as_timestamp(states[shading_status_helper].last_changed) > soft_started }}
               - conditions:
                   - "{{ state_attr(cover_entity, 'current_position') is not none }}"
                   - "{{ state_attr(cover_entity, 'current_position') | int(101) < morning_target | int(100) }}"
@@ -1272,19 +1414,13 @@ actions:
                   - action: cover.open_cover
                     target:
                       entity_id: !input cover
-          # Ein Lüftungs-Snapshot aus der Nacht ist ab jetzt veraltet: Ohne
-          # diese Bereinigung würde das Fenster-Zurückfahren den Rollladen
-          # nach dem Schließen wieder auf die alte Nacht-Position ziehen
-          - if:
-              - "{{ expand('scene.reclose_' ~ (cover_entity | slugify)) | count > 0 }}"
-            then:
-              - action: scene.delete
-                target:
-                  entity_id: "{{ 'scene.reclose_' ~ (cover_entity | slugify) }}"
           # Morgens-Öffnen ist für die Beschattung eine Fremdbewegung: Status freigeben,
           # damit ein heißer Sommermorgen direkt wieder frisch beschattet werden kann
           - if:
               - "{{ shading_status_helper is string and is_state(shading_status_helper, 'on') }}"
+              # Sanftes Wecken: eine erst während des Weckens gestartete Beschattung
+              # hat übernommen und darf nicht wieder freigegeben werden
+              - "{{ morning_soft_duration | int(0) == 0 or as_timestamp(states[shading_status_helper].last_changed) < morning_started | float(0) }}"
             then:
               - action: input_boolean.turn_off
                 target:

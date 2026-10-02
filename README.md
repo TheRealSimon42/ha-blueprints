@@ -13,7 +13,8 @@ Pro Fenster/Rollladen wird eine eigene Automation erstellt — gemeinsame Helfer
 ist der Rollladen; der Fenstersensor ist optional (festverglaste Fenster!).
 
 - Morgens öffnen: zur Uhrzeit (input_datetime-Helfer), zum Sonnenaufgang mit
-  Verschiebung ("später von beiden"), oder erst bei Bewegung im Raum
+  Verschiebung ("später von beiden"), oder erst bei Bewegung im Raum; optional als
+  sanftes Wecken in Schritten
 - Fenster-Interaktion (offen/gekippt → Position, mit Rückfahr-Logik)
 - Nachtmodus inkl. Lüftungsposition bei offenem Fenster und optionaler
   Nacht-Zielposition; Helfer darf input_boolean, Schedule oder Binärsensor sein
