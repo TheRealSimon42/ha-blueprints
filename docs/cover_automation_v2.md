@@ -47,7 +47,8 @@ Jedes Feature darüber hinaus ist per Schalter zuschaltbar.
    - Sonnenheizen: ein **weiterer** `input_boolean` pro Fenster (nicht denselben wie
      für den Sonnenschutz verwenden!).
 4. Für Sonnenschutz/Sonnenheizen die **Fenstergeometrie** eintragen (Ausrichtung in
-   Grad, Sichtfeld, Fensterhöhe, Brüstungshöhe) — Details unten.
+   Grad, Sichtfeld, Fensterhöhe, Brüstungshöhe; bei Vordach oder Balkon darüber die
+   maximale Sonnenhöhe) — Details unten.
 
 Fehlt ein zwingend nötiger Helfer bei aktiviertem Feature, meldet sich die Automation
 selbst: Eine dauerhafte Benachrichtigung in Home Assistant benennt das betroffene
@@ -126,6 +127,29 @@ treffen. Verkleinere es nur, wenn real etwas im Weg steht (Laibung, Balkon,
 Nachbarhaus). Sehr flach einfallende Sonne wird automatisch milder behandelt — je
 schräger der Winkel, desto weiter oben bleibt der Rollladen. Links/rechts gilt von
 innen am Fenster stehend: Beim Südfenster ist links die Vormittagsseite (Osten).
+
+Nach oben begrenzt die **maximale Sonnenhöhe** (Standard 90° = keine Einschränkung)
+das Sichtfeld — gedacht für Fenster mit Vordach, Balkon oder Dachüberstand darüber.
+Steht die Sonne höher, gilt sie als nicht "im Fenster": Das Vordach schattet die
+steile Mittagssonne ohnehin ab, Verdunkeln wäre unnötig. Steigt die Sonne mittags
+über die Grenze, endet eine laufende Beschattung regulär (Fahrt auf die Position nach
+der Beschattung, eine Eingriffs-Sperre fällt weg) und beginnt am Nachmittag neu,
+sobald die Sonne wieder darunter sinkt. Für Sonnenheizen gilt die Grenze genauso:
+Der Nachmittag zählt dort als neuer Durchgang, ein zwischendurch wieder
+heruntergelassener Rollladen wird dann erneut geöffnet.
+
+Den Wert ermittelst du am einfachsten durch Beobachten: Ab welcher Sonnenhöhe
+(Attribut `elevation` von `sun.sun`) liegt die Glasfläche komplett im Schatten? Als
+Faustformel: arctan(Höhe der Vordachkante über der Glas-Unterkante ÷ Vordach-Tiefe)
+— ein 1,5 m tiefer Balkon, dessen Unterkante 1,6 m über der Glas-Unterkante liegt,
+schattet das Glas ab etwa 47° komplett ab. Die maximale muss über der minimalen
+Sonnenhöhe liegen.
+
+Eine Hysterese gibt es an dieser Grenze bewusst nicht: Die Sonnenhöhe wird berechnet,
+nicht gemessen, und überschreitet die Grenze höchstens einmal pro Tag in jede
+Richtung — ein Pendeln ist ausgeschlossen. An Tagen, an denen die Sonne mittags nur
+knapp über die Grenze steigt, ist die Mittagspause entsprechend kurz (in Deutschland
+bei 0,1° über der Grenze rund eine halbe Stunde).
 
 Aus Fensterhöhe, Brüstungshöhe und der maximal erlaubten Sonneneinfall-Tiefe berechnet
 die Automation alle 5 Minuten die Position, bei der die Sonne höchstens bis zur
@@ -283,8 +307,14 @@ Blueprint-Instanzen einfach; deren Eingriffs-Erkennung stört sich daran nicht.
 Benachrichtigung wegen fehlendem Status-Helfer? Ist eine Temperaturquelle gesetzt
 (eigener Sensor oder Wetter-Entität im Sturmschutz-Abschnitt)? Liegt die
 Außentemperatur über der Schwelle, steht die Sonne im Sichtfeld (Ausrichtung
-korrekt?), ist eine gesetzte Freigabe-Entität "on", und ist das Fenster nicht
-komplett offen?
+korrekt?) und zwischen minimaler und maximaler Sonnenhöhe, ist eine gesetzte
+Freigabe-Entität "on", und ist das Fenster nicht komplett offen?
+
+**Über dem Fenster ist ein Balkon oder Vordach — mittags wird trotzdem verdunkelt?**
+Die maximale Sonnenhöhe im Abschnitt "Fenstergeometrie & Sonnenausrichtung" auf den
+Wert setzen, ab dem das Vordach die Glasfläche abschattet (siehe "Sichtfeld und
+Geometrie"). Darüber öffnet der Rollladen auf die Position nach der Beschattung;
+am Nachmittag beschattet die Automation bei Bedarf wieder.
 
 **Warum fährt der Rollladen nach dem Lüften zurück?** Beim Öffnen des Fensters merkt
 sich die Automation die Ausgangsposition und stellt sie nach dem Schließen wieder her

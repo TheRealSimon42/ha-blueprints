@@ -201,10 +201,10 @@ blueprint:
     window_geometry_section:
       name: Fenstergeometrie & Sonnenausrichtung
       description: >
-        Ausrichtung und Sichtfeld des Fensters. Diese Werte bestimmen, wann die Sonne
-        geometrisch "ins Fenster scheint" — sowohl für den Sonnenschutz (Beschattung)
-        als auch für Sonnenheizen. Wird nur eines der beiden Features genutzt, müssen
-        die Werte trotzdem hier gesetzt werden.
+        Ausrichtung, Sichtfeld und Sonnenhöhen-Grenzen des Fensters. Diese Werte
+        bestimmen, wann die Sonne geometrisch "ins Fenster scheint" — sowohl für den
+        Sonnenschutz (Beschattung) als auch für Sonnenheizen. Wird nur eines der beiden
+        Features genutzt, müssen die Werte trotzdem hier gesetzt werden.
 
 
         Zur Bedeutung von Ausrichtung und Sichtfeld:
@@ -268,6 +268,25 @@ blueprint:
             number:
               min: 0
               max: 45
+              step: 1
+              mode: slider
+              unit_of_measurement: °
+        shading_max_elevation:
+          name: Maximale Sonnenhöhe
+          description: >
+            Oberhalb dieser Sonnenhöhe (Elevation in Grad) gilt die Sonne als nicht
+            "im Fenster" (weder für Sonnenschutz noch für Sonnenheizen) — für
+            Fenster mit Vordach, Balkon, Dachüberstand oder tiefer Laibung darüber,
+            die die steile Mittagssonne ohnehin abschatten. Steigt die Sonne über
+            diesen Wert, endet eine laufende Beschattung regulär und beginnt neu,
+            sobald die Sonne wieder darunter sinkt. Muss über der minimalen
+            Sonnenhöhe liegen, sonst scheint die Sonne rechnerisch nie ins Fenster.
+            90° = keine Einschränkung (bisheriges Verhalten).
+          default: 90
+          selector:
+            number:
+              min: 0
+              max: 90
               step: 1
               mode: slider
               unit_of_measurement: °
@@ -974,6 +993,7 @@ variables:
   shading_fov_left: !input shading_fov_left
   shading_fov_right: !input shading_fov_right
   shading_min_elevation: !input shading_min_elevation
+  shading_max_elevation: !input shading_max_elevation
   window_height: !input window_height
   window_sill_height: !input window_sill_height
   shading_depth: !input shading_depth
@@ -1488,8 +1508,12 @@ actions:
               sun_elevation: "{{ state_attr('sun.sun', 'elevation') | float(0) }}"
               sun_azimuth: "{{ state_attr('sun.sun', 'azimuth') | float(0) }}"
               az_diff: "{{ ((sun_azimuth - window_azimuth + 180) % 360) - 180 }}"
+              # Bewusst ohne Hysterese an der Höchstgrenze: Die Sonnenhöhe ist berechnet
+              # (kein Messrauschen) und steigt bis mittags stetig, danach fällt sie —
+              # jede Grenze wird pro Tag höchstens einmal je Richtung überschritten
               sun_in_window: >-
                 {{ sun_elevation >= shading_min_elevation
+                   and sun_elevation <= shading_max_elevation
                    and az_diff >= (0 - shading_fov_left)
                    and az_diff <= shading_fov_right }}
               outdoor_temp: >-
@@ -1663,6 +1687,7 @@ actions:
               az_diff: "{{ ((sun_azimuth - window_azimuth + 180) % 360) - 180 }}"
               sun_in_window: >-
                 {{ sun_elevation >= shading_min_elevation
+                   and sun_elevation <= shading_max_elevation
                    and az_diff >= (0 - shading_fov_left)
                    and az_diff <= shading_fov_right }}
               # Fallback +99 (statt -99 wie beim Sonnenschutz): fehlt die
