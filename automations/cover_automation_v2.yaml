@@ -790,10 +790,12 @@ blueprint:
       description: >
         Bei Frost frieren Rollladenpanzer gern im Kasten oder an der
         Führungsschiene fest — fährt der Motor dann auf Anschlag, können Gurt
-        oder Lamellen reißen. Der Frostschutz begrenzt deshalb alle
-        automatischen AUFWÄRTS-Fahrten (morgens, Lüften, Sonnenheizen, Sturm)
-        auf eine schonende Maximal-Position, solange es friert. Schließen ist
-        immer erlaubt. Aktiv, sobald ein Temperatursensor ausgewählt ist.
+        oder Lamellen reißen. Der Frostschutz begrenzt deshalb die
+        automatischen AUFWÄRTS-Fahrten (morgens, Lüften, Ende der Beschattung,
+        Sonnenheizen) auf eine schonende Maximal-Position, solange es friert.
+        Ausnahme Sturm: Die Sturm-Öffnung fährt ganz hoch, weil ein teilweise
+        heruntergelassener Panzer im Wind flattert. Schließen ist immer
+        erlaubt. Aktiv, sobald ein Temperatursensor ausgewählt ist.
       icon: mdi:snowflake-thermometer
       collapsed: true
       input:
@@ -826,9 +828,10 @@ blueprint:
         frost_max_position:
           name: Maximale Öffnungsposition bei Frost
           description: >
-            Höher als bis zu dieser Position fährt keine automatische Fahrt,
-            solange es friert — die letzten Prozent reißen den festgefrorenen
-            Panzer sonst vom Fensterbrett bzw. ziehen ihn gegen den Anschlag.
+            Höher als bis zu dieser Position fährt keine automatische Fahrt
+            (außer der Sturm-Öffnung), solange es friert — die letzten Prozent
+            reißen den festgefrorenen Panzer sonst vom Fensterbrett bzw. ziehen
+            ihn gegen den Anschlag.
           default: 90
           selector:
             number:
@@ -1368,20 +1371,14 @@ actions:
           - if:
               - "{{ not panzer_mode }}"
             then:
-              # Auch die Sturm-Öffnung reißt einen festgefrorenen Panzer ab —
-              # bei Frost deshalb nur bis zur schonenden Maximal-Position
-              - if:
-                  - "{{ frost_active and state_attr(cover_entity, 'current_position') is not none }}"
-                then:
-                  - action: cover.set_cover_position
-                    target:
-                      entity_id: !input cover
-                    data:
-                      position: !input frost_max_position
-                else:
-                  - action: cover.open_cover
-                    target:
-                      entity_id: !input cover
+              # Bewusst ohne Frost-Begrenzung: Die Sturm-Öffnung soll den Panzer
+              # aus dem Wind holen. Ein teilweise heruntergelassener Panzer (auch
+              # auf 90 %) bietet Angriffsfläche und flattert bzw. schlägt in den
+              # Schienen — ganz eingefahren liegt er geschützt im Kasten. Wie
+              # überall gilt: Der Sturmschutz hat Vorrang
+              - action: cover.open_cover
+                target:
+                  entity_id: !input cover
             else:
               - action: cover.close_cover
                 target:
@@ -1636,7 +1633,14 @@ actions:
                     target:
                       entity_id: !input cover
                     data:
-                      position: !input shading_end_position
+                      # Auch das Ende der Beschattung ist eine Aufwärts-Fahrt — bei
+                      # Frost nur bis zur schonenden Maximal-Position öffnen
+                      position: >-
+                        {% if frost_active %}
+                          {{ [shading_end_position | int(100), frost_max_position | int(100)] | min }}
+                        {% else %}
+                          {{ shading_end_position | int(100) }}
+                        {% endif %}
 
       # --- SONNENHEIZEN (Winter) ---
       - conditions:

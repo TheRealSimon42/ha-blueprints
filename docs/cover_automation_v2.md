@@ -63,7 +63,7 @@ Fenster, bis der Helfer gesetzt oder das Feature deaktiviert ist.
 | Sturmschutz         | Fährt bei Starkwind hoch (oder im Panzer-Modus herunter)                                                                                                                 | Wetter-Entität oder Wind-Sensor                                      |
 | Sonnenschutz        | Beschattet anhand des Sonnenstands so, dass die Sonne höchstens X m in den Raum fällt; öffnet nach Ende wieder; optional an eine Freigabe-Entität (PV, Lux, …) gekoppelt | Status-Helfer, Geometrie, Temperaturquelle                           |
 | Sonnenheizen        | Öffnet im Winter vergessene Rollos, wenn Sonne ins Fenster scheint und es kalt ist                                                                                       | eigener Status-Helfer, Geometrie                                     |
-| Frostschutz         | Begrenzt bei Frost alle automatischen Aufwärts-Fahrten auf eine schonende Maximal-Position (festgefrorener Panzer)                                                       | Außentemperatur-Sensor                                               |
+| Frostschutz         | Begrenzt bei Frost die automatischen Aufwärts-Fahrten (außer bei Sturm) auf eine schonende Maximal-Position (festgefrorener Panzer)                                      | Außentemperatur-Sensor                                               |
 | Moskito-Modus       | Schaltet beim Fensteröffnen nach Sonnenuntergang die Lichter im Raum aus (mit Ausnahmen)                                                                                 | Fenstersensor                                                        |
 | Benachrichtigungen  | Meldet zu lange offene/gekippte Fenster aufs Handy, mit "Rollladen schließen"-Button; verschwindet automatisch beim Schließen                                            | Companion-App-Geräte, Fenstersensor                                  |
 | Pausieren           | Hält die komplette Automation an, solange ein Helfer eingeschaltet ist — z.B. während Videoaufnahmen oder wenn Gäste schlafen                                            | `input_boolean`-Helfer (optional)                                    |
@@ -74,7 +74,7 @@ und auch der Pausier-Helfer hält ihn nicht auf (Schutz der Hardware geht vor).
 Danach kommt die Pause (solange ihr Helfer an ist, passiert sonst gar nichts),
 dann der Nachtmodus (nachts wird nicht beschattet, nicht geheizt und beim
 Fensteröffnen nur bis zur Lüftungsposition geöffnet), dann der Frostschutz als
-Begrenzer aller Öffnungs-Fahrten, dann erst die Komfort-Features.
+Begrenzer der Öffnungs-Fahrten (außer bei Sturm), dann erst die Komfort-Features.
 
 ## Verhalten verstehen
 
@@ -108,12 +108,17 @@ Bei Minusgraden frieren Rollladenpanzer gern am Fensterbrett oder in den
 Führungsschienen fest; fährt der Motor dann auf Anschlag, reißen Gurt oder Lamellen.
 Sobald ein Außentemperatur-Sensor im Frostschutz-Abschnitt gesetzt ist (es darf
 derselbe sein wie beim Sonnenschutz), werden bei Temperaturen auf/unter der Schwelle
-**alle automatischen Aufwärts-Fahrten** — Morgens-Öffnen, das Hochfahren beim Lüften,
-Sonnenheizen und sogar die Sturm-Öffnung — auf die eingestellte Maximal-Position
+**die automatischen Aufwärts-Fahrten** — Morgens-Öffnen, das Hochfahren beim Lüften,
+das Ende der Beschattung und Sonnenheizen — auf die eingestellte Maximal-Position
 (Standard 90 %) begrenzt. Die letzten Prozent, die den festgefrorenen Panzer
 abreißen würden, entfallen. Schließen ist immer uneingeschränkt erlaubt; eine
 Hysterese braucht es nicht, weil nur einzelne Fahrten begrenzt werden und nichts
 zyklisch nachregelt.
+
+Ausnahme ist die **Sturm-Öffnung**: Sie fährt auch bei Frost ganz hoch. Ein teilweise
+heruntergelassener Panzer bietet dem Wind Angriffsfläche und flattert bzw. schlägt in
+den Schienen; ganz eingefahren liegt er geschützt im Kasten — der Sturmschutz hat
+Vorrang.
 
 ### Sichtfeld und Geometrie
 
