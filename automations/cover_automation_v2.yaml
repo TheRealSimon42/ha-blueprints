@@ -280,8 +280,9 @@ blueprint:
         Sehr schräg einfallende Sonne wird dabei automatisch berücksichtigt: je flacher
         der Winkel, desto weiter oben bleibt der Rollladen. Wird der Rollladen während
         der Beschattung manuell verfahren, erkennt die Automation das und lässt ihn bis
-        zum Beschattungs-Ende in Ruhe. Ausrichtung und Sichtfeld werden im Abschnitt
-        "Fenstergeometrie & Sonnenausrichtung" eingestellt.
+        zum Beschattungs-Ende (oder für eine einstellbare Dauer) in Ruhe. Ausrichtung
+        und Sichtfeld werden im Abschnitt "Fenstergeometrie & Sonnenausrichtung"
+        eingestellt.
         ⚠️ Benötigt einen eigenen input_boolean-Helfer pro Fenster als Status-Speicher.
       icon: mdi:sun-wireless
       collapsed: true
@@ -516,8 +517,9 @@ blueprint:
             Weicht die Ist-Position während laufender Beschattung um mehr als diesen
             Wert von der berechneten Sollposition ab, wertet die Automation das als
             manuellen Eingriff und lässt den Rollladen in Ruhe — bis die Beschattung
-            endet und normal wieder geöffnet wird. Kleinere Abweichungen gelten als
-            normales Nachführen der Sonne.
+            endet und normal wieder geöffnet wird (oder die Dauer im nächsten Feld
+            abgelaufen ist). Kleinere Abweichungen gelten als normales Nachführen
+            der Sonne.
           default: 20
           selector:
             number:
@@ -526,6 +528,25 @@ blueprint:
               step: 1
               mode: slider
               unit_of_measurement: "%"
+        shading_override_duration:
+          name: Dauer für manuelle Eingriffe
+          description: >
+            Wie lange ein erkannter manueller Eingriff respektiert wird. Steht der
+            Rollladen seit mindestens dieser Dauer still, fährt die Beschattung
+            wieder auf ihre Sollposition und führt danach normal nach — z.B. 60
+            Minuten, damit ein Handgriff vom Mittag nicht den ganzen Nachmittag
+            blockiert. Jede weitere Bewegung startet die Wartezeit neu. Gilt in
+            beide Richtungen: Auch ein von Hand weiter geschlossener Rollladen
+            fährt danach wieder auf die Sollposition. 0 = bis zum Ende der
+            Beschattung in Ruhe lassen (bisheriges Verhalten).
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 480
+              step: 5
+              mode: slider
+              unit_of_measurement: Minuten
         force_shading:
           name: Beschattung erzwingen
           description: >
@@ -986,6 +1007,7 @@ variables:
   shading_temp_hysteresis: !input shading_temp_hysteresis
   shading_min_change: !input shading_min_change
   shading_override_threshold: !input shading_override_threshold
+  shading_override_duration: !input shading_override_duration
   force_shading: !input force_shading
   shading_weather_states: !input shading_weather_states
   solar_heating_status_helper: !input solar_heating_status_helper
@@ -1591,15 +1613,25 @@ actions:
                   - condition: "{{ current_position >= 0 }}"
                   - variables:
                       deviation: "{{ (current_position - target_position | int) | abs }}"
+                      # Manueller Eingriff abgelaufen: Dauer gesetzt und der Rollladen
+                      # steht seit mindestens so vielen Minuten still. Bewusst
+                      # last_updated statt last_changed — viele Cover melden eine
+                      # Teilfahrt nur über das Attribut current_position, der State
+                      # bleibt 'open' und last_changed damit alt (Wartezeit wäre sofort um)
+                      override_expired: >-
+                        {{ shading_override_duration | int(0) > 0
+                           and (as_timestamp(now()) - as_timestamp(states[cover_entity].last_updated))
+                               >= shading_override_duration | int(0) * 60 }}
                   - if:
                       - "{{ is_state(shading_status_helper, 'on') }}"
                     then:
                       # Beschattung läuft bereits: nur kleine Abweichungen nachführen.
                       # Große Abweichungen können nicht vom Sonnenstand kommen (der
                       # wandert pro Tick nur wenige Prozent) — das war ein manueller
-                      # Eingriff und wird bis zum Beschattungs-Ende respektiert.
+                      # Eingriff und wird bis zum Beschattungs-Ende respektiert — mit
+                      # gesetzter Dauer nur, bis der Rollladen mindestens so lange stillsteht.
                       - if:
-                          - "{{ deviation >= shading_min_change and deviation <= shading_override_threshold }}"
+                          - "{{ deviation >= shading_min_change and (deviation <= shading_override_threshold or override_expired) }}"
                         then:
                           - action: cover.set_cover_position
                             target:

@@ -177,14 +177,24 @@ Tick nur die Ist-Position mit ihrem berechneten Sollwert:
 - **über 20 %**: Das kann keine Sonnenwanderung sein — ein Mensch war am Werk. Der
   Rollladen wird in Ruhe gelassen.
 
-Diese "Sperre" gilt **bis zum Ende der laufenden Beschattungs-Episode** (Sonne
-verlässt das Sichtfeld, es kühlt ab, oder der Nachtmodus kommt). Das Episoden-Ende
+Diese "Sperre" gilt standardmäßig **bis zum Ende der laufenden Beschattungs-Episode**
+(Sonne verlässt das Sichtfeld, es kühlt ab, oder der Nachtmodus kommt). Das Episoden-Ende
 öffnet den Rollladen dann regulär — auch über die manuelle Position hinweg. Am
 nächsten Tag beginnt alles bei null; die Anfangsbewegung ist von der Toleranz
 ausgenommen. Stellst du den Rollladen manuell ungefähr dorthin, wo die Beschattung
 ihn haben will, übernimmt das Nachführen wieder stillschweigend. Sturm, Lüften und
 Morgens-Öffnen zählen dagegen nicht als manuelle Eingriffe — nach ihnen darf sofort
 wieder beschattet werden.
+
+Soll ein Handgriff nicht die ganze Episode lang gelten, begrenzt die **Dauer für
+manuelle Eingriffe** die Sperre zeitlich (z. B. 60 Minuten): Steht der Rollladen
+seit mindestens dieser Dauer still, fährt die Beschattung wieder auf ihre
+Sollposition und führt danach normal nach. Jede weitere Bewegung — etwa ein
+erneuter Handgriff — startet die Wartezeit neu. Das gilt in beide Richtungen: Auch
+ein von Hand weiter geschlossener Rollladen fährt danach wieder auf die
+Sollposition. Geprüft wird im 5-Minuten-Takt der Beschattung, die Rückkehr erfolgt
+also bis zu 5 Minuten nach Ablauf. Mit 0 (Standard) bleibt es beim bisherigen
+Verhalten.
 
 Wer die Beschattung dauerhaft nicht will, deaktiviert den Schalter "Sonnenschutz
 aktivieren" in der Instanz — der Status-Helfer ist **kein** Ausschalter, er ist das
@@ -219,6 +229,14 @@ die Einmal-Logik des Sonnenheizens und die Eingriffs-Erkennung auf.
   betreten, öffnet er erneut. Wer das nicht will, nutzt den Pausier-Helfer.
 - **Frostschutz** begrenzt die automatischen Fahrten, nicht das Zurückfahren auf eine
   gemerkte Ausgangsposition nach dem Lüften (die war ja bereits erreicht).
+- **Dauer für manuelle Eingriffe:** Gemessen wird ab der letzten Änderung von Zustand
+  oder Attributen des Rollladens (`last_updated`). `last_changed` wäre ungeeignet: Bei
+  vielen Covern ändert eine Teilfahrt nur das Attribut `current_position`, der
+  Zustand bleibt "offen". Meldet ein Cover laufend weitere veränderliche Attribute
+  (z. B. Funkqualität oder "zuletzt gesehen" bei manchen MQTT-/Zigbee-Integrationen)
+  oder schwankt die Positionsmeldung ständig um ein Prozent, läuft die Wartezeit nie
+  ab — der Eingriff gilt dann wie bisher bis zum Beschattungs-Ende. Ein HA-Neustart
+  oder ein kurzes "nicht verfügbar" startet die Wartezeit ebenfalls neu.
 
 ## FAQ
 
