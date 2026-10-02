@@ -42,6 +42,8 @@ Jedes Feature darüber hinaus ist per Schalter zuschaltbar.
      (Schedule) oder ein beliebiger Binärsensor. Einer für alle Instanzen; "an" heißt
      Nacht. Mit einem Zeitplan-Helfer schließen die Rollläden automatisch zum
      Blockbeginn — ganz ohne eigene Zusatz-Automation.
+     Alternativ pro Fenster eine eigene Nacht-Uhrzeit über einen `input_datetime`-Helfer
+     (nur Uhrzeit) — immer nur eines von beiden.
    - Sonnenschutz: ein `input_boolean` **pro Fenster** als Status-Speicher,
      Namensvorschlag: "Beschattung <Fenstername>".
    - Sonnenheizen: ein **weiterer** `input_boolean` pro Fenster (nicht denselben wie
@@ -59,7 +61,7 @@ Fenster, bis der Helfer gesetzt oder das Feature deaktiviert ist.
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
 | Morgens öffnen      | Fährt zur eingestellten Uhrzeit und/oder zum Sonnenaufgang auf die Zielposition (nur wenn geschlossener); optional erst bei der ersten Bewegung im Raum                  | `input_datetime`-Helfer (nur Uhrzeit) und/oder Sonnenaufgangs-Option |
 | Fenster-Interaktion | Kippen → Lüftungsposition, Öffnen → ganz auf (optional: wie Kippen behandeln); nach dem Schließen zurück in die Ausgangsposition                                         | Fenstersensor                                                        |
-| Nachtmodus          | Schließt beim Einschalten des Helfers (wahlweise auf eine Nacht-Zielposition statt ganz zu); offene/gekippte Fenster bekommen eine Lüftungsposition                      | `input_boolean`, Zeitplan oder Binärsensor                           |
+| Nachtmodus          | Schließt beim Einschalten des Helfers oder zur Uhrzeit (wahlweise auf eine Nacht-Zielposition statt ganz zu); offene/gekippte Fenster bekommen eine Lüftungsposition     | `input_boolean`, Zeitplan, Binärsensor oder Uhrzeit-Helfer           |
 | Sturmschutz         | Fährt bei Starkwind hoch (oder im Panzer-Modus herunter)                                                                                                                 | Wetter-Entität oder Wind-Sensor                                      |
 | Sonnenschutz        | Beschattet anhand des Sonnenstands so, dass die Sonne höchstens X m in den Raum fällt; öffnet nach Ende wieder; optional an eine Freigabe-Entität (PV, Lux, …) gekoppelt | Status-Helfer, Geometrie, Temperaturquelle                           |
 | Sonnenheizen        | Öffnet im Winter vergessene Rollos, wenn Sonne ins Fenster scheint und es kalt ist                                                                                       | eigener Status-Helfer, Geometrie                                     |
@@ -190,6 +192,28 @@ Wer die Beschattung dauerhaft nicht will, deaktiviert den Schalter "Sonnenschutz
 aktivieren" in der Instanz — der Status-Helfer ist **kein** Ausschalter, er ist das
 interne Gedächtnis der Automation und stellt sich bei Handbetätigung einfach zurück.
 
+### Nachtmodus per Helfer oder per Uhrzeit
+
+Der Nachtmodus lässt sich pro Fenster auf zwei Arten auslösen — **immer nur eine davon**:
+
+- **Helfer** (`input_boolean`, Zeitplan-Helfer oder Binärsensor): die gemeinsame
+  Entität für alle Fenster. Die Nacht dauert, solange sie eingeschaltet ist; ihr Ende
+  holt ein blockiertes Morgens-Öffnen nach (siehe oben).
+- **Uhrzeit** (`input_datetime`, nur Uhrzeit): Dieses eine Fenster schließt zu einer
+  eigenen Zeit, z. B. das Kinderzimmer früher als der Rest. Die Nacht gilt dann ab
+  dieser Uhrzeit bis zum morgendlichen Öffnen — bis zur Uhrzeit für morgendliches
+  Hochfahren, mit "Mit dem Sonnenaufgang öffnen" bis zum späteren von Uhrzeit und
+  Sonnenaufgang (plus Verschiebung), ohne beides bis Sonnenaufgang. Das gilt auch, wenn
+  das Öffnen selbst deaktiviert ist. Weil diese Nacht genau mit dem Öffnen endet,
+  blockiert sie es nie — ein Nachholen wie beim Helfer braucht es nicht.
+
+In beiden Fällen verhält sich die Nacht gleich: keine Beschattung, kein Sonnenheizen,
+kein Bewegungs-Öffnen, ein geöffnetes Fenster bekommt nur die Lüftungsposition, und
+nach dem Lüften fährt der Rollladen wieder in die Nachtposition. Blueprints können
+"nur eines von beiden" im Formular nicht erzwingen. Sind beide Felder gesetzt, gilt
+der Helfer, die Uhrzeit wird ignoriert, und eine dauerhafte Benachrichtigung in Home
+Assistant benennt das betroffene Fenster.
+
 ### Warum die Status-Helfer nötig sind
 
 Blueprints haben keinen eigenen Speicher, und bei Funk-Rollläden lässt sich aus den
@@ -266,6 +290,10 @@ template:
           {{ state_attr('sun.sun', 'elevation') | float(0) < -4
              or now().hour < 7 }}
 ```
+
+Soll nur ein einzelnes Fenster zu einer eigenen Uhrzeit schließen, geht das ohne
+zusätzliche Entität über die **Nachtmodus-Uhrzeit** (siehe "Nachtmodus per Helfer oder
+per Uhrzeit").
 
 **Urlaubsmodus / Anwesenheitssimulation?** Über den Pausier-Helfer lösbar: Ein
 `input_boolean` "Urlaub" (von der eigenen Anwesenheits-Logik geschaltet) pausiert mit

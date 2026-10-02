@@ -16,7 +16,8 @@ ist der Rollladen; der Fenstersensor ist optional (festverglaste Fenster!).
   Verschiebung ("später von beiden"), oder erst bei Bewegung im Raum
 - Fenster-Interaktion (offen/gekippt → Position, mit Rückfahr-Logik)
 - Nachtmodus inkl. Lüftungsposition bei offenem Fenster und optionaler
-  Nacht-Zielposition; Helfer darf input_boolean, Schedule oder Binärsensor sein
+  Nacht-Zielposition; Helfer darf input_boolean, Schedule oder Binärsensor sein —
+  alternativ eigene Uhrzeit pro Fenster
 - Sturmschutz (Wetter-Entität oder Wind-Sensor, optionaler Panzer-Modus) — hat immer Vorrang
 - Sonnenschutz/Beschattung anhand des Sonnenstands (Fenster-Geometrie, Temperatur-Schwelle
   mit Hysterese, optionaler Wetterlagen-Filter und Freigabe-Entität für PV/Lux/eigene

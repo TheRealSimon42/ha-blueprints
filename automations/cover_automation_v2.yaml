@@ -670,7 +670,9 @@ blueprint:
             time: {}
     night_mode_section:
       name: Nachtmodus
-      description: Schließen der Rollläden bei Nacht über einen gemeinsamen Helfer.
+      description: >
+        Schließen der Rollläden bei Nacht — entweder über einen gemeinsamen Helfer
+        oder über eine eigene Uhrzeit für dieses Fenster. Nur eines von beiden setzen.
       icon: mdi:weather-night
       collapsed: true
       input:
@@ -684,7 +686,8 @@ blueprint:
             Binärsensor (z.B. ein Template-Sensor "Sonne unter Horizont" für
             das Schließen bei Sonnenuntergang). Endet der Nachtmodus, wird ein
             von ihm blockiertes morgendliches Öffnen (Uhrzeit/Sonnenaufgang)
-            nachgeholt. Leer lassen, wenn kein Nachtmodus gewünscht ist. In
+            nachgeholt. Leer lassen, wenn kein Nachtmodus gewünscht ist oder
+            stattdessen die Nachtmodus-Uhrzeit (nächstes Feld) genutzt wird. In
             allen Blueprint-Instanzen dieselbe Entität auswählen.
           default: []
           selector:
@@ -693,6 +696,23 @@ blueprint:
                 - domain: input_boolean
                 - domain: schedule
                 - domain: binary_sensor
+        night_mode_time:
+          name: Nachtmodus-Uhrzeit (optional)
+          description: >
+            Alternative zum Nachtmodus-Helfer: ein input_datetime-Helfer mit der
+            Uhrzeit, zu der dieser Rollladen für die Nacht herunterfährt — z.B. wenn
+            ein Fenster früher schließen soll als der Rest. Die Nacht gilt dann bis
+            zum morgendlichen Öffnen: bis zur Uhrzeit für morgendliches Hochfahren,
+            mit "Mit dem Sonnenaufgang öffnen" bis zum späteren von Uhrzeit und
+            Sonnenaufgang (plus Verschiebung), ohne beides bis Sonnenaufgang. Nur
+            EINES von beiden setzen: Helfer oder Uhrzeit. Sind beide gewählt, gilt
+            der Helfer, und eine dauerhafte Benachrichtigung in Home Assistant weist
+            darauf hin.
+            Wichtig: einen Helfer, der NUR eine Uhrzeit enthält (ohne Datum).
+          default: []
+          selector:
+            entity:
+              domain: input_datetime
         night_position:
           name: Zielposition für nachts
           description: >
@@ -951,8 +971,74 @@ variables:
   morning_motion_sensor: !input morning_motion_sensor
   morning_position: !input morning_position
   night_mode_boolean: !input night_mode_boolean
+  night_mode_time: !input night_mode_time
   night_position: !input night_position
   night_ventilation_position: !input night_ventilation_position
+  # Nacht per Uhrzeit (Alternative zur Nachtmodus-Entität, die Vorrang hat):
+  # [Beginn, Ende) als HH:MM:SS-Paar, leer = keine Uhrzeit-Nacht. Beginn ist
+  # night_mode_time, Ende das morgendliche Öffnen — die Morgens-Uhrzeit, mit
+  # "Mit dem Sonnenaufgang öffnen" der spätere von Uhrzeit und Sonnenaufgang +
+  # Verschiebung, ohne beides der Sonnenaufgang (auch bei abgeschaltetem
+  # Öffnen). Heutiger Sonnenaufgang: davor next_rising, danach der frühere von
+  # zwei Werten — dem Wechsel von sun.sun auf über dem Horizont (last_changed,
+  # sekundengenau wie der Sonnen-Auslöser) und next_rising minus 24 h (weicht
+  # um bis zu ein paar Minuten ab). Im Herbst gewinnt last_changed; im
+  # Frühjahr und nach einem Neustart (last_changed = Neustart) gilt der
+  # Schätzwert — die Nacht endet dann bis zu ein paar Minuten zu früh, nach
+  # einem Neustart im Herbst zu spät. Abends ist next_rising der Aufgang von
+  # morgen, als Uhrzeit praktisch derselbe. Ohne Sonnendaten und ohne
+  # Morgens-Uhrzeit bleibt nur der Auslöser. Als Paar statt Ja/Nein, damit die
+  # Fenster-Interaktion nach dem Warten mit der Uhrzeit von dann neu prüfen
+  # kann (night_mode_on_now)
+  night_time_window: >-
+    {% if night_mode_boolean is not string
+          and night_mode_time is string
+          and has_value(night_mode_time)
+          and state_attr(night_mode_time, 'has_time') %}
+      {% set start = states(night_mode_time).split(' ')[-1] %}
+      {% set time_end = states(morning_time_entity).split(' ')[-1]
+           if morning_time_entity is string
+              and has_value(morning_time_entity)
+              and state_attr(morning_time_entity, 'has_time')
+           else none %}
+      {% set nr_raw = state_attr('sun.sun', 'next_rising') %}
+      {% if nr_raw is none %}
+        {% set sun_end = none %}
+      {% else %}
+        {% set nr = as_datetime(nr_raw) %}
+        {% if is_state('sun.sun', 'below_horizon') %}
+          {% set sunrise_today = nr %}
+        {% else %}
+          {% set sunrise_today = [nr - timedelta(hours=24), states.sun.sun.last_changed] | min %}
+        {% endif %}
+        {% set offset = morning_sun_offset | int(0) if morning_use_sun else 0 %}
+        {% set sun_end = ((sunrise_today + timedelta(minutes=offset)) | as_local).strftime('%H:%M:%S') %}
+      {% endif %}
+      {% if time_end and not morning_use_sun %}
+        {% set end = time_end %}
+      {% else %}
+        {% set end = [time_end, sun_end] | select | max if (time_end or sun_end) else none %}
+      {% endif %}
+      {{ [start, end] if end else [] }}
+    {% else %}
+      {{ [] }}
+    {% endif %}
+  # Nacht aktiv? Gemeinsame Abfrage für alle Stellen (Beschattung, Sonnenheizen,
+  # Fenster-Interaktion, Nachholen, Bewegungs-Morgen): mit Entität deren
+  # Zustand, sonst das Uhrzeit-Fenster oben (auch über Mitternacht). Ein reiner
+  # Auslöser würde nicht reichen: Die Beschattung würde den gerade geschlossenen
+  # Rollladen an einem heißen Abend wieder hochfahren
+  night_mode_on: >-
+    {% if night_mode_boolean is string %}
+      {{ is_state(night_mode_boolean, 'on') }}
+    {% elif night_time_window | count == 2 %}
+      {% set t = now().strftime('%H:%M:%S') %}
+      {% set s = night_time_window[0] %}
+      {% set e = night_time_window[1] %}
+      {{ (s <= t < e) if s <= e else (t >= s or t < e) }}
+    {% else %}
+      false
+    {% endif %}
   frost_temp_sensor: !input frost_temp_sensor
   frost_temp_threshold: !input frost_temp_threshold
   frost_max_position: !input frost_max_position
@@ -1109,6 +1195,12 @@ triggers:
     from: "off"
     to: "on"
     id: night_close
+  # Alternative zur Entität: eigene Nacht-Uhrzeit für dieses Fenster. Gleiche
+  # ID wie der Entitäts-Auslöser — welcher der beiden Wege gefeuert hat,
+  # erkennt der Nachtmodus-Zweig an trigger.platform
+  - trigger: time
+    at: !input night_mode_time
+    id: night_close
   # Nachtmodus-Ende = Morgen für Schedule-Nutzer: holt ein Öffnen nach, das
   # der Nacht-Block verhindert hat (Uhrzeit/Sonnenaufgang lagen in der Nacht)
   - trigger: state
@@ -1183,6 +1275,12 @@ actions:
           # Nachtmodus-Ende ein im Nacht-Block verpasstes Öffnen nach — aber
           # nur bei Tag bzw. am Vormittag (Winter-Frühe!), damit ein abends
           # versehentlich getoggelter Helfer nicht mitten in der Nacht öffnet.
+          # Blockieren kann hier nur die Nachtmodus-ENTITÄT: Die Nacht per
+          # Uhrzeit (night_mode_time) endet per Definition genau mit diesem
+          # Öffnen — mitgeprüft könnte sie es an der Grenze verhindern
+          # (Sekunden-Rundung, nach einem Neustart nur geschätzter
+          # Sonnenaufgang), und ein on->off-Ereignis zum Nachholen gibt es bei
+          # ihr nicht.
           - >-
             {% set nr_raw = state_attr('sun.sun', 'next_rising') %}
             {% if nr_raw is none %}
@@ -1223,7 +1321,7 @@ actions:
                            and has_value(morning_time_entity)
                            and state_attr(morning_time_entity, 'has_time'))
                       or now() >= today_at(states(morning_time_entity).split(' ')[-1]))
-                 and not (night_mode_boolean is string and is_state(night_mode_boolean, 'on'))
+                 and not night_mode_on
                  and not (shading_status_helper is string and is_state(shading_status_helper, 'on'))
                  and ((state_attr(cover_entity, 'current_position') is none
                        and (states(cover_entity) | lower) in ['closed', 'closing'])
@@ -1295,6 +1393,26 @@ actions:
           - condition: trigger
             id: night_close
         sequence:
+          # Fehlkonfiguration laut machen: Blueprints können "nur eines von beiden"
+          # nicht im Formular erzwingen. Sind Helfer UND Uhrzeit gesetzt, gilt der
+          # Helfer — der Uhrzeit-Trigger bewegt dann nichts
+          - if:
+              - "{{ night_mode_boolean is string and night_mode_time is string }}"
+            then:
+              - action: persistent_notification.create
+                data:
+                  notification_id: "rollladen_nachtmodus_doppelt_{{ cover_entity | slugify }}"
+                  title: "Rollladensteuerung: Nachtmodus doppelt konfiguriert"
+                  message: >-
+                    Für "{{ state_attr(cover_entity, 'friendly_name') or cover_entity }}"
+                    sind Nachtmodus-Helfer UND Nachtmodus-Uhrzeit ausgewählt — es darf
+                    nur eines von beiden gesetzt sein. Bis dahin gilt der Helfer, die
+                    Uhrzeit wird ignoriert. Bitte in der Automation eines der beiden
+                    Felder leeren.
+              - if:
+                  - "{{ trigger.platform == 'time' }}"
+                then:
+                  - stop: "Nachtmodus-Helfer und -Uhrzeit gesetzt — der Helfer hat Vorrang"
           # Beschattungs-Status zurücksetzen: Die Nacht beendet die Beschattung,
           # sonst springt der Rollladen morgens beim ersten Tick auf die End-Position
           - if:
@@ -1425,7 +1543,7 @@ actions:
                   0
                 {% endif %}
           - if:
-              - "{{ night_mode_boolean is string and is_state(night_mode_boolean, 'on') }}"
+              - "{{ night_mode_on }}"
               - "{{ not storm_enabled or (wind_now | float(0)) < wind_speed_threshold }}"
             then:
               - choose:
@@ -1561,7 +1679,7 @@ actions:
                   - "{{ storm_ok }}"
                   - "{{ weather_ok }}"
                   - "{{ enable_ok }}"
-                  - "{{ not (night_mode_boolean is string and is_state(night_mode_boolean, 'on')) }}"
+                  - "{{ not night_mode_on }}"
                   - >-
                     {{ force_shading
                        or treat_open_as_tilted
@@ -1627,7 +1745,7 @@ actions:
                        or (temp_available and outdoor_temp <= (shading_temp_threshold - shading_temp_hysteresis))
                        or weather_bad_stable
                        or enable_off_stable }}
-                  - "{{ not (night_mode_boolean is string and is_state(night_mode_boolean, 'on')) }}"
+                  - "{{ not night_mode_on }}"
                 sequence:
                   - action: input_boolean.turn_off
                     target:
@@ -1686,7 +1804,6 @@ actions:
                 {% else %}
                   false
                 {% endif %}
-              night_mode_on: "{{ night_mode_boolean is string and is_state(night_mode_boolean, 'on') }}"
               wind_now: >-
                 {% if storm_wind_sensor is string %}
                   {{ states(storm_wind_sensor) | float(0) }}
@@ -1852,7 +1969,7 @@ actions:
                   0
                 {% endif %}
           - if:
-              - "{{ night_mode_boolean is string and is_state(night_mode_boolean, 'on') }}"
+              - "{{ night_mode_on }}"
               # Nur nach einem ECHTEN Schließ-Vorgang nachziehen: Ein Sensor-Blip
               # (unavailable -> closed bei Zigbee-Reconnect oder Integrations-Reload)
               # darf einen nachts bewusst manuell geöffneten Rollladen nicht zufahren
@@ -1891,7 +2008,6 @@ actions:
             id: window_change
         sequence:
           - variables:
-              night_mode_on: "{{ night_mode_boolean is string and is_state(night_mode_boolean, 'on') }}"
               reclose_scene: "scene.reclose_{{ cover_entity | slugify }}"
           # Ausgangsposition nur beim Übergang aus "geschlossen" sichern — sonst
           # überschreibt Kippen→Öffnen den Snapshot mit der Kipp-Position. Nach
@@ -1981,7 +2097,18 @@ actions:
           # Zustand NACH dem Warten neu bewerten — währenddessen können Nachtmodus
           # oder Sturm aktiv geworden sein, dann darf der Snapshot nicht zurückgeholt werden
           - variables:
-              night_mode_on_now: "{{ night_mode_boolean is string and is_state(night_mode_boolean, 'on') }}"
+              # Gleiche Logik wie night_mode_on oben, aber mit der Uhrzeit von jetzt
+              night_mode_on_now: >-
+                {% if night_mode_boolean is string %}
+                  {{ is_state(night_mode_boolean, 'on') }}
+                {% elif night_time_window | count == 2 %}
+                  {% set t = now().strftime('%H:%M:%S') %}
+                  {% set s = night_time_window[0] %}
+                  {% set e = night_time_window[1] %}
+                  {{ (s <= t < e) if s <= e else (t >= s or t < e) }}
+                {% else %}
+                  false
+                {% endif %}
               pause_now: >-
                 {% set helpers = [pause_boolean] if pause_boolean is string else pause_boolean %}
                 {% set pausing = 'on' if pause_mode == 'on_pauses' else 'off' %}
