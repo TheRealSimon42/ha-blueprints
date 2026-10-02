@@ -700,6 +700,8 @@ blueprint:
             Fenster fährt. 0 = komplett schließen (Standard). Werte über 0
             lassen z.B. die Lamellen offen — dafür muss der Rollladen
             Positionsangaben unterstützen, sonst wird komplett geschlossen.
+            Die Zielposition wird nur abwärts angefahren: Steht der Rollladen
+            schon tiefer (z.B. von Hand geschlossen), bleibt er dort.
           default: 0
           selector:
             number:
@@ -1337,11 +1339,16 @@ actions:
               - if:
                   - "{{ night_position | int(0) > 0 and state_attr(cover_entity, 'current_position') is not none }}"
                 then:
-                  - action: cover.set_cover_position
-                    target:
-                      entity_id: !input cover
-                    data:
-                      position: !input night_position
+                  # Nur abwärts: Ein schon tiefer stehender Rollladen (z.B. von Hand
+                  # geschlossen) wird nachts nicht wieder auf die Zielposition geöffnet
+                  - if:
+                      - "{{ state_attr(cover_entity, 'current_position') | int(0) > night_position | int(0) }}"
+                    then:
+                      - action: cover.set_cover_position
+                        target:
+                          entity_id: !input cover
+                        data:
+                          position: !input night_position
                 else:
                   - action: cover.close_cover
                     target:
@@ -1452,11 +1459,15 @@ actions:
                   - if:
                       - "{{ night_position | int(0) > 0 and state_attr(cover_entity, 'current_position') is not none }}"
                     then:
-                      - action: cover.set_cover_position
-                        target:
-                          entity_id: !input cover
-                        data:
-                          position: !input night_position
+                      # Nur abwärts — wie im Nachtmodus-Zweig
+                      - if:
+                          - "{{ state_attr(cover_entity, 'current_position') | int(0) > night_position | int(0) }}"
+                        then:
+                          - action: cover.set_cover_position
+                            target:
+                              entity_id: !input cover
+                            data:
+                              position: !input night_position
                     else:
                       - action: cover.close_cover
                         target:
@@ -1865,11 +1876,15 @@ actions:
               - if:
                   - "{{ night_position | int(0) > 0 and state_attr(cover_entity, 'current_position') is not none }}"
                 then:
-                  - action: cover.set_cover_position
-                    target:
-                      entity_id: !input cover
-                    data:
-                      position: !input night_position
+                  # Nur abwärts — wie im Nachtmodus-Zweig
+                  - if:
+                      - "{{ state_attr(cover_entity, 'current_position') | int(0) > night_position | int(0) }}"
+                    then:
+                      - action: cover.set_cover_position
+                        target:
+                          entity_id: !input cover
+                        data:
+                          position: !input night_position
                 else:
                   - action: cover.close_cover
                     target:
@@ -2019,11 +2034,15 @@ actions:
                       - if:
                           - "{{ night_position | int(0) > 0 and state_attr(cover_entity, 'current_position') is not none }}"
                         then:
-                          - action: cover.set_cover_position
-                            target:
-                              entity_id: !input cover
-                            data:
-                              position: !input night_position
+                          # Nur abwärts — wie im Nachtmodus-Zweig
+                          - if:
+                              - "{{ state_attr(cover_entity, 'current_position') | int(0) > night_position | int(0) }}"
+                            then:
+                              - action: cover.set_cover_position
+                                target:
+                                  entity_id: !input cover
+                                data:
+                                  position: !input night_position
                         else:
                           - action: cover.close_cover
                             target:

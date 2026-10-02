@@ -59,7 +59,7 @@ Fenster, bis der Helfer gesetzt oder das Feature deaktiviert ist.
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
 | Morgens öffnen      | Fährt zur eingestellten Uhrzeit und/oder zum Sonnenaufgang auf die Zielposition (nur wenn geschlossener); optional erst bei der ersten Bewegung im Raum                  | `input_datetime`-Helfer (nur Uhrzeit) und/oder Sonnenaufgangs-Option |
 | Fenster-Interaktion | Kippen → Lüftungsposition, Öffnen → ganz auf (optional: wie Kippen behandeln); nach dem Schließen zurück in die Ausgangsposition                                         | Fenstersensor                                                        |
-| Nachtmodus          | Schließt beim Einschalten des Helfers (wahlweise auf eine Nacht-Zielposition statt ganz zu); offene/gekippte Fenster bekommen eine Lüftungsposition                      | `input_boolean`, Zeitplan oder Binärsensor                           |
+| Nachtmodus          | Schließt beim Einschalten des Helfers (wahlweise nur abwärts auf eine Nacht-Zielposition statt ganz zu); offene/gekippte Fenster bekommen eine Lüftungsposition          | `input_boolean`, Zeitplan oder Binärsensor                           |
 | Sturmschutz         | Fährt bei Starkwind hoch (oder im Panzer-Modus herunter)                                                                                                                 | Wetter-Entität oder Wind-Sensor                                      |
 | Sonnenschutz        | Beschattet anhand des Sonnenstands so, dass die Sonne höchstens X m in den Raum fällt; öffnet nach Ende wieder; optional an eine Freigabe-Entität (PV, Lux, …) gekoppelt | Status-Helfer, Geometrie, Temperaturquelle                           |
 | Sonnenheizen        | Öffnet im Winter vergessene Rollos, wenn Sonne ins Fenster scheint und es kalt ist                                                                                       | eigener Status-Helfer, Geometrie                                     |
@@ -266,6 +266,10 @@ template:
           {{ state_attr('sun.sun', 'elevation') | float(0) < -4
              or now().hour < 7 }}
 ```
+
+**Der Rollladen ist abends schon zu — fährt er zum Nachtbeginn wieder hoch?** Bei
+geschlossenem Fenster nicht: Die Nacht-Zielposition wird nur abwärts angefahren. Steht
+der Rollladen schon tiefer (z. B. von Hand geschlossen), bleibt er dort.
 
 **Urlaubsmodus / Anwesenheitssimulation?** Über den Pausier-Helfer lösbar: Ein
 `input_boolean` "Urlaub" (von der eigenen Anwesenheits-Logik geschaltet) pausiert mit
