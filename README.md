@@ -20,7 +20,7 @@ ist der Rollladen; der Fenstersensor ist optional (festverglaste Fenster!).
 - Sturmschutz (Wetter-Entität oder Wind-Sensor, optionaler Panzer-Modus) — hat immer Vorrang
 - Sonnenschutz/Beschattung anhand des Sonnenstands (Fenster-Geometrie, Temperatur-Schwelle
   mit Hysterese, optionaler Wetterlagen-Filter und Freigabe-Entität für PV/Lux/eigene
-  Bedingungen, erkennt manuelle Eingriffe)
+  Bedingungen, optionaler Blendschutz auch bei Kälte, erkennt manuelle Eingriffe)
 - Sonnenheizen für die Heizperiode (öffnet vergessene Rollos bei Sonne und Kälte)
 - Frostschutz (begrenzt Aufwärtsfahrten bei Frost — schützt festgefrorene Panzer)
 - Moskito-Modus (Licht aus im Raum, wenn das Fenster nach Sonnenuntergang geöffnet wird)

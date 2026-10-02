@@ -62,6 +62,7 @@ Fenster, bis der Helfer gesetzt oder das Feature deaktiviert ist.
 | Nachtmodus          | Schließt beim Einschalten des Helfers (wahlweise auf eine Nacht-Zielposition statt ganz zu); offene/gekippte Fenster bekommen eine Lüftungsposition                      | `input_boolean`, Zeitplan oder Binärsensor                           |
 | Sturmschutz         | Fährt bei Starkwind hoch (oder im Panzer-Modus herunter)                                                                                                                 | Wetter-Entität oder Wind-Sensor                                      |
 | Sonnenschutz        | Beschattet anhand des Sonnenstands so, dass die Sonne höchstens X m in den Raum fällt; öffnet nach Ende wieder; optional an eine Freigabe-Entität (PV, Lux, …) gekoppelt | Status-Helfer, Geometrie, Temperaturquelle                           |
+| Blendschutz         | Beschattet optional auch unter der Temperatur-Schwelle, nie tiefer als die Blendschutz-Position                                                                          | Sonnenschutz aktiv                                                   |
 | Sonnenheizen        | Öffnet im Winter vergessene Rollos, wenn Sonne ins Fenster scheint und es kalt ist                                                                                       | eigener Status-Helfer, Geometrie                                     |
 | Frostschutz         | Begrenzt bei Frost alle automatischen Aufwärts-Fahrten auf eine schonende Maximal-Position (festgefrorener Panzer)                                                       | Außentemperatur-Sensor                                               |
 | Moskito-Modus       | Schaltet beim Fensteröffnen nach Sonnenuntergang die Lichter im Raum aus (mit Ausnahmen)                                                                                 | Fenstersensor                                                        |
@@ -167,6 +168,49 @@ verhindert in jedem Fall, dass eine flatternde Quelle den Rollladen im
 5-Minuten-Takt fahren lässt. Bei "unavailable" startet keine neue Beschattung, eine
 laufende bleibt bestehen.
 
+### Blendschutz
+
+Im Frühjahr, Herbst und Winter steht die Sonne tief und scheint weit in den Raum —
+seitlich auf den Monitor im Arbeitszimmer oder morgens ins Ost-Badezimmer. Die
+Außentemperatur liegt dann aber meist unter der Beschattungs-Schwelle, der normale
+Sonnenschutz (Hitzeschutz) bleibt aus. Dafür gibt es im Sonnenschutz-Abschnitt den
+Schalter **Blendschutz** (Standard: aus; wirkt nur bei aktiviertem Sonnenschutz):
+
+- Scheint die Sonne laut Geometrie ins Fenster, wird auch **unterhalb der
+  Temperatur-Schwelle** beschattet — sogar ganz ohne Temperaturquelle. Alle übrigen
+  Bedingungen gelten wie beim Sonnenschutz: Wetterlagen-Filter, Freigabe-Entität,
+  Sturm, Nachtmodus, offenes Fenster, Pausieren. Es wird derselbe Status-Helfer
+  verwendet.
+- Ziel ist die berechnete Beschattungsposition, aber **nie tiefer als die
+  Blendschutz-Position** (Standard 50 %). Blendschutz ist damit immer "leichter" als
+  Hitzeschutz: Bei tief stehender Sonne würde die Geometrie den Rollladen fast ganz
+  schließen — der Blendschutz bleibt auf der Blendschutz-Position stehen. Liegt die
+  berechnete Position höher, gilt diese.
+- Der Blendschutz fährt **nur herunter**: Steht der Rollladen beim Start schon tiefer
+  als das Blendschutz-Ziel (z. B. morgens noch geschlossen oder von Hand zugemacht),
+  bleibt er dort. Erst wenn er geöffnet wird (morgens, von Hand), übernimmt der
+  Blendschutz.
+- Ist es warm genug (Temperatur über der Schwelle), gilt automatisch die normale
+  Beschattung. Kühlt es um die Hysterese ab, endet die Episode **nicht**, sondern
+  wechselt auf das Blendschutz-Ziel. Dazwischen (im Hysterese-Band) behält die
+  Automation das Ziel bei, auf dem der Rollladen gerade steht — kein Pendeln um die
+  Schwelle.
+- Beendet wird die Episode wie gewohnt, wenn die Sonne das Fenster verlässt (auch
+  durch Sonnenuntergang) oder die Wetterlage bzw. die Freigabe-Entität stabil nicht
+  mehr passt; dann fährt der Rollladen auf die "Position nach der Beschattung".
+- Mit Blendschutz kann auch bei Frost beschattet werden. Ist der Frostschutz aktiv,
+  fahren Nachführen und Episoden-Ende dann nie über dessen Maximal-Position nach
+  oben — notfalls auch entgegen der Blendschutz-Position.
+- "Beschattung erzwingen" gilt auch für den Blendschutz: Der Rollladen bleibt dann
+  auch bei geöffnetem Fenster unten (mindestens auf der Kipp-Position).
+- Blendschutz-Position 0 % macht die Beschattung komplett temperaturunabhängig: Es
+  gilt dann immer die volle berechnete Beschattung.
+
+**Tipp:** Unbedingt mit den Wetterlagen für Beschattung kombinieren (z. B. nur
+"sonnig" und "teilweise bewölkt"). Die Automation kennt nur den Sonnenstand — ohne
+Filter fährt der Blendschutz auch an trüben Tagen herunter. Ein Helligkeitssensor
+lässt sich über die Freigabe-Entität anbinden (siehe oben).
+
 ### Manuelle Eingriffe während der Beschattung
 
 Die Automation weiß nie, _wer_ den Rollladen bewegt hat — sie vergleicht bei jedem
@@ -178,13 +222,25 @@ Tick nur die Ist-Position mit ihrem berechneten Sollwert:
   Rollladen wird in Ruhe gelassen.
 
 Diese "Sperre" gilt **bis zum Ende der laufenden Beschattungs-Episode** (Sonne
-verlässt das Sichtfeld, es kühlt ab, oder der Nachtmodus kommt). Das Episoden-Ende
+verlässt das Sichtfeld, es kühlt ab — nur ohne Blendschutz —, oder der Nachtmodus
+kommt). Das Episoden-Ende
 öffnet den Rollladen dann regulär — auch über die manuelle Position hinweg. Am
 nächsten Tag beginnt alles bei null; die Anfangsbewegung ist von der Toleranz
 ausgenommen. Stellst du den Rollladen manuell ungefähr dorthin, wo die Beschattung
 ihn haben will, übernimmt das Nachführen wieder stillschweigend. Sturm, Lüften und
 Morgens-Öffnen zählen dagegen nicht als manuelle Eingriffe — nach ihnen darf sofort
 wieder beschattet werden.
+
+Mit **Blendschutz** gibt es zwei mögliche Ziele (Hitze- und Blendschutz-Ziel). Wechselt
+das gültige Ziel, weil die Temperatur die Schwelle erreicht oder um die Hysterese
+darunter fällt, ist der Sprung oft größer als die Toleranz. Ein solcher Zielwechsel
+zählt nicht als Handeingriff, wenn der Rollladen noch **genau** (innerhalb der
+minimalen Positionsänderung) auf dem bisherigen Ziel steht und die Temperatur den
+Schaltpunkt **gerade erst** überschritten hat: bis 2 °C über der Schwelle bzw. bis
+1 °C unter "Schwelle minus Hysterese". Sonst zählt nur das gültige Ziel — wer im
+Winter während des Blendschutzes von Hand ganz schließt, wird bis zum Episoden-Ende
+in Ruhe gelassen. Die Episode umfasst dabei Blend- und Hitzeschutz gemeinsam: Ein
+Handeingriff am kühlen Morgen gilt auch noch, wenn es mittags heiß wird.
 
 Wer die Beschattung dauerhaft nicht will, deaktiviert den Schalter "Sonnenschutz
 aktivieren" in der Instanz — der Status-Helfer ist **kein** Ausschalter, er ist das
@@ -206,7 +262,8 @@ die Einmal-Logik des Sonnenheizens und die Eingriffs-Erkennung auf.
   Sturmschutz selbst hat beim Überschreiten des Grenzwerts längst ausgelöst.
 - **Wetterlagen-Filter:** Flattert das Wetter zwischen zwei _nicht_ erlaubten Lagen
   (z. B. Regen ↔ Starkregen), beendet erst Sonnenstand oder Temperatur die
-  Beschattung. Der Filter beendet nur bei mindestens 10 Minuten stabil schlechter Lage.
+  Beschattung (mit Blendschutz nur der Sonnenstand). Der Filter beendet nur bei
+  mindestens 10 Minuten stabil schlechter Lage.
 - **Cover ohne Positions-Angabe** (nur auf/zu): Morgens-Öffnen funktioniert,
   Kipp-Position, Beschattung, Nacht-Zielposition und Frost-Begrenzung werden
   übersprungen — sie brauchen Positionsdaten.
@@ -214,6 +271,24 @@ die Einmal-Logik des Sonnenheizens und die Eingriffs-Erkennung auf.
   m/s statt km/h, muss der Grenzwert entsprechend gesetzt werden.
 - **Sturm-Ende:** Nach dem Sturm bleibt der Rollladen in der Schutzposition, bis das
   nächste reguläre Ereignis (Nachtmodus, Morgens, Beschattung) ihn übernimmt.
+- **Blendschutz kennt keine Bewölkung:** Ausgelöst wird rein über den Sonnenstand.
+  Ohne Wetterlagen-Filter fährt der Rollladen auch an trüben Tagen auf die
+  Blendschutz-Position; ein Helligkeitssensor wirkt nur über die Freigabe-Entität.
+- **Blendschutz-Zielwechsel** (siehe "Manuelle Eingriffe"): Stellst du den Rollladen
+  kurz nach dem Überschreiten eines Schaltpunkts von Hand genau auf das andere Ziel
+  (z. B. bei 22,5 °C ganz zu, während der Hitzeschutz ohnehin 0 % wollte), sieht das
+  wie ein Zielwechsel aus und wird nachgeführt. Umgekehrt: Springt die Temperatur
+  zwischen zwei Ticks weit über einen Schaltpunkt (z. B. stündlich aktualisierte
+  Wetter-Entität) oder steht der Rollladen nicht genau auf dem bisherigen Ziel, wirkt
+  der Wechsel wie ein Handeingriff — der Rollladen bleibt dann bis zum Episoden-Ende
+  auf dem bisherigen Ziel. Perfekte Erkennung bräuchte einen zweiten Helfer.
+- **Blendschutz am Westfenster:** Die Episode endet mit dem Sonnenuntergang; der
+  Rollladen fährt dann auf die "Position nach der Beschattung" — wer abends ohnehin
+  schließt, sieht diese Fahrt kurz vor dem Nachtmodus.
+- **Blendschutz und Sonnenheizen** verfolgen am selben Fenster gegensätzliche Ziele.
+  Sonnenheizen öffnet nur unterhalb seines Grenzwerts "heruntergelassen" (Standard
+  50 %) — die Blendschutz-Position also mindestens so hoch wählen, sonst öffnet
+  Sonnenheizen den Blendschutz, und der wertet das als Handeingriff.
 - **Bewegungs-Öffnen** reagiert auf jede Bewegung, solange seine Bedingungen stimmen:
   Wird der Rollladen tagsüber von Hand wieder komplett geschlossen und dann der Raum
   betreten, öffnet er erneut. Wer das nicht will, nutzt den Pausier-Helfer.
@@ -232,7 +307,8 @@ Home-Assistant-Konvention: 100 % = ganz offen, 0 % = ganz geschlossen. Die Proze
 sind dabei die Werte deines Cover-Aktors, also Motor-Laufweg — nicht zwingend
 Glasfläche. Für die Beschattung lässt sich dieser Unterschied über die
 Glas-Kalibrierung (siehe oben) ausgleichen; alle anderen Positions-Eingaben
-(morgens, Kipp-Position, Nachtlüftung) sind bewusst direkte Aktor-Werte.
+(morgens, Kipp-Position, Nachtlüftung, Blendschutz-Position) sind bewusst direkte
+Aktor-Werte.
 
 **Ich habe gar keinen Fenstersensor — geht das?** Ja, das Feld einfach leer lassen.
 Morgens-Öffnen, Nachtmodus, Sturmschutz, Beschattung, Sonnenheizen und Frostschutz
@@ -282,9 +358,19 @@ Blueprint-Instanzen einfach; deren Eingriffs-Erkennung stört sich daran nicht.
 **Die Beschattung tut nichts — warum?** Prüfe in dieser Reihenfolge: Gibt es eine
 Benachrichtigung wegen fehlendem Status-Helfer? Ist eine Temperaturquelle gesetzt
 (eigener Sensor oder Wetter-Entität im Sturmschutz-Abschnitt)? Liegt die
-Außentemperatur über der Schwelle, steht die Sonne im Sichtfeld (Ausrichtung
+Außentemperatur über der Schwelle (oder ist der Blendschutz aktiviert), steht die
+Sonne im Sichtfeld (Ausrichtung
 korrekt?), ist eine gesetzte Freigabe-Entität "on", und ist das Fenster nicht
 komplett offen?
+
+**Die Sonne blendet im Winter am Monitor (oder morgens im Bad), aber die Beschattung
+tut nichts?** Der Sonnenschutz ist ein Hitzeschutz und greift erst über der
+Temperatur-Schwelle. Für tief stehende Wintersonne im Sonnenschutz-Abschnitt den
+**Blendschutz** aktivieren und die Blendschutz-Position wählen (z. B. 50 %): Dann
+fährt der Rollladen, solange die Sonne ins Fenster scheint, auf diese Position — und
+an heißen Tagen wie gewohnt auf die volle Beschattung. Am besten zusätzlich die
+Wetterlagen für Beschattung auf "sonnig"/"teilweise bewölkt" beschränken, sonst
+fährt er auch an trüben Tagen herunter.
 
 **Warum fährt der Rollladen nach dem Lüften zurück?** Beim Öffnen des Fensters merkt
 sich die Automation die Ausgangsposition und stellt sie nach dem Schließen wieder her
@@ -299,7 +385,10 @@ speichert den Zustand genau eines Fensters. Ein geteilter Helfer führt zu falsc
 
 **Sonnenschutz und Sonnenheizen gleichzeitig aktiv — geht das?** Ja, das ist der
 Normalfall. Die Temperatur-Schwellen trennen sie (Standard: beschatten über 25 °C,
-heizen unter 12 °C); die Schwellen sollten sich nicht überlappen.
+heizen unter 12 °C); die Schwellen sollten sich nicht überlappen. Mit Blendschutz
+beschattet der Sonnenschutz allerdings auch bei Kälte — dann die Blendschutz-Position
+mindestens auf den Grenzwert "heruntergelassen" des Sonnenheizens setzen (siehe
+Bekannte Grenzen).
 
 **Die Fenster-offen-Meldung bleibt auf dem Handy stehen?** Sie verschwindet
 automatisch, sobald das Fenster geschlossen wird — vorausgesetzt, die Companion-App

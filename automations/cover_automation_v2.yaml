@@ -4,8 +4,9 @@ blueprint:
     Steuert einen einzelnen Rollladen anhand "seines" Fensters: morgendliches Öffnen,
     Reaktion auf gekippte/geöffnete Fenster inkl. Rückfahr-Logik, Nachtmodus, Sturmschutz,
     automatische Beschattung anhand des Sonnenstands (Sonnenschutz, optional mit Filter
-    nach Wetterlage), Sonnenheizen (das Gegenteil: öffnet in der Heizperiode
-    heruntergelassene/vergessene Rollläden bei Sonne und Kälte) sowie ein Moskito-Modus,
+    nach Wetterlage und temperaturunabhängigem Blendschutz), Sonnenheizen (das
+    Gegenteil: öffnet in der Heizperiode heruntergelassene/vergessene Rollläden bei
+    Sonne und Kälte) sowie ein Moskito-Modus,
     der beim Öffnen des Fensters nach Sonnenuntergang die Lichter im Raum ausschaltet.
 
 
@@ -280,7 +281,9 @@ blueprint:
         Sehr schräg einfallende Sonne wird dabei automatisch berücksichtigt: je flacher
         der Winkel, desto weiter oben bleibt der Rollladen. Wird der Rollladen während
         der Beschattung manuell verfahren, erkennt die Automation das und lässt ihn bis
-        zum Beschattungs-Ende in Ruhe. Ausrichtung und Sichtfeld werden im Abschnitt
+        zum Beschattungs-Ende in Ruhe. Optional schützt der Blendschutz auch an kühlen
+        Tagen vor blendender Sonne; die Beschattung endet dann erst, wenn die Sonne das
+        Fenster verlässt. Ausrichtung und Sichtfeld werden im Abschnitt
         "Fenstergeometrie & Sonnenausrichtung" eingestellt.
         ⚠️ Benötigt einen eigenen input_boolean-Helfer pro Fenster als Status-Speicher.
       icon: mdi:sun-wireless
@@ -467,7 +470,8 @@ blueprint:
           description: >
             Optionaler Temperatursensor für die Beschattungs-Bedingung. Wenn leer,
             wird die Temperatur der Wetter-Entität aus dem Sturmschutz verwendet —
-            eines von beiden muss gesetzt sein, sonst startet die Beschattung nie.
+            eines von beiden muss gesetzt sein, sonst startet die Beschattung nie
+            (Ausnahme: Der Blendschutz kommt auch ohne Temperaturquelle aus).
           default: []
           selector:
             entity:
@@ -475,7 +479,10 @@ blueprint:
               device_class: temperature
         shading_temp_threshold:
           name: Temperatur-Schwelle
-          description: Beschattet wird nur, wenn die Außentemperatur über diesem Wert liegt.
+          description: >
+            Beschattet wird nur, wenn die Außentemperatur über diesem Wert liegt.
+            Mit aktiviertem Blendschutz wird auch bei kühlerem Wetter beschattet, dann
+            aber höchstens bis zur Blendschutz-Position.
           default: 25
           selector:
             number:
@@ -488,7 +495,8 @@ blueprint:
           name: Temperatur-Hysterese
           description: >
             Die Beschattung endet erst, wenn die Temperatur um diesen Wert unter die
-            Schwelle gefallen ist (verhindert ständiges Auf und Ab).
+            Schwelle gefallen ist (verhindert ständiges Auf und Ab). Mit aktiviertem
+            Blendschutz endet sie dann nicht, sondern wechselt auf den Blendschutz.
           default: 2
           selector:
             number:
@@ -497,6 +505,44 @@ blueprint:
               step: 0.5
               mode: slider
               unit_of_measurement: °C
+        glare_enabled:
+          name: Blendschutz (unabhängig von der Temperatur)
+          description: >
+            Beschattet auch, wenn die Außentemperatur unter der Schwelle liegt oder
+            keine Temperaturquelle verfügbar ist — gegen Blendung im Frühjahr,
+            Herbst und Winter, z.B. tief stehende Sonne auf dem Monitor oder morgens
+            im Ost-Badezimmer. Der Rollladen fährt dabei auf die berechnete
+            Beschattungsposition, aber nie tiefer als die Blendschutz-Position
+            (nächstes Feld) — und nur herunter: Steht er schon tiefer (z.B. morgens
+            noch zu), bleibt er dort. Ist es warm genug, gilt die normale Beschattung;
+            kühlt es ab, wechselt sie auf den Blendschutz, statt zu enden. Beendet wird
+            erst, wenn die Sonne das Fenster verlässt oder die Wetterlage bzw. die
+            Freigabe-Entität stabil nicht mehr passt. Sturm, Nachtmodus, offenes
+            Fenster und eine nicht eingeschaltete Freigabe-Entität blockieren wie beim
+            Sonnenschutz; bei Frost fährt er nie über die Maximal-Position des
+            Frostschutzes. Wirkt nur bei aktiviertem Sonnenschutz und nutzt dessen
+            Status-Helfer. Tipp: Mit den Wetterlagen für Beschattung (z.B. nur
+            sonnig und teilweise bewölkt) kombinieren, damit an trüben Tagen nicht
+            beschattet wird.
+          default: false
+          selector:
+            boolean: {}
+        glare_position:
+          name: Blendschutz-Position
+          description: >
+            Tiefer als diese Position (in %) fährt der Blendschutz nie — liegt die
+            berechnete Beschattungsposition höher, gilt diese. Blendschutz bleibt
+            damit immer "leichter" als der Hitzeschutz. Wirkt nur bei aktiviertem
+            Blendschutz; Werte unter der minimalen Beschattungsposition bzw. dem
+            Aufsetz-Punkt haben keine Wirkung.
+          default: 50
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 1
+              mode: slider
+              unit_of_measurement: "%"
         shading_min_change:
           name: Minimale Positionsänderung
           description: >
@@ -517,7 +563,9 @@ blueprint:
             Wert von der berechneten Sollposition ab, wertet die Automation das als
             manuellen Eingriff und lässt den Rollladen in Ruhe — bis die Beschattung
             endet und normal wieder geöffnet wird. Kleinere Abweichungen gelten als
-            normales Nachführen der Sonne.
+            normales Nachführen der Sonne. Mit aktiviertem Blendschutz zählt der
+            Wechsel zwischen Hitze- und Blendschutz-Ziel direkt nach dem Überschreiten
+            der Temperatur-Schaltpunkte nicht als Eingriff.
           default: 20
           selector:
             number:
@@ -984,6 +1032,8 @@ variables:
   shading_temp_sensor: !input shading_temp_sensor
   shading_temp_threshold: !input shading_temp_threshold
   shading_temp_hysteresis: !input shading_temp_hysteresis
+  glare_enabled: !input glare_enabled
+  glare_position: !input glare_position
   shading_min_change: !input shading_min_change
   shading_override_threshold: !input shading_override_threshold
   force_shading: !input force_shading
@@ -1520,6 +1570,9 @@ actions:
                 {% else %}
                   false
                 {% endif %}
+              # Um die Hysterese abgekühlt (nur mit verfügbarem Temperaturwert)
+              temp_cooled: >-
+                {{ temp_available and outdoor_temp <= (shading_temp_threshold - shading_temp_hysteresis) }}
               # Wetterlagen-Filter: ohne Auswahl (leer) immer erlaubt (Altverhalten,
               # rein auf Sonnenstand/Temperatur basierend); ohne gesetzte Wetter-Entität
               # oder bei unavailable/unknown ebenfalls erlaubt (Filter kann nicht
@@ -1554,10 +1607,23 @@ actions:
                 {{ shading_enable_entity is string
                    and states(shading_enable_entity) == 'off'
                    and (as_timestamp(now()) - as_timestamp(states[shading_enable_entity].last_changed)) > 600 }}
+              # Frostschutz: In der Regel macht erst der Blendschutz Beschattung bei
+              # Frost möglich — mit ihm fahren Nachführen und Beschattungs-Ende bei
+              # Frost nie über die schonende Maximal-Position nach oben. Steht der
+              # Rollladen schon höher, wird er deswegen nicht heruntergefahren (wie
+              # beim Lüften), nur nicht weiter hoch. Ohne Blendschutz bleibt alles wie
+              # bisher (100 = keine Grenze)
+              frost_cap: >-
+                {% if frost_active and glare_enabled %}
+                  {{ [frost_max_position | int(100), state_attr(cover_entity, 'current_position') | int(0)] | max }}
+                {% else %}
+                  100
+                {% endif %}
           - choose:
-              # Beschattung starten / der Sonne nachführen
+              # Beschattung starten / der Sonne nachführen. Mit Blendschutz auch
+              # unterhalb der Temperatur-Schwelle (Ziel dann: Blendschutz-Ziel)
               - conditions:
-                  - "{{ sun_in_window and outdoor_temp >= shading_temp_threshold }}"
+                  - "{{ sun_in_window and (outdoor_temp >= shading_temp_threshold or glare_enabled) }}"
                   - "{{ storm_ok }}"
                   - "{{ weather_ok }}"
                   - "{{ enable_ok }}"
@@ -1574,23 +1640,72 @@ actions:
                       ray_height: >-
                         {{ shading_depth * tan(sun_elevation * pi / 180)
                            / ([cos(az_diff * pi / 180), 0.087] | max) }}
-                      target_position: >-
+                      # Hitzeschutz-Ziel: Position laut Geometrie
+                      heat_target: >-
                         {% set glass_free = [[(ray_height - window_sill_height) / window_height * 100, 0] | max, 100] | min %}
                         {% set a = glass_bottom_position | int(0) %}
                         {% set b = glass_top_position | int(100) %}
                         {% if b <= a %}{% set a = 0 %}{% set b = 100 %}{% endif %}
                         {% set p = (a + glass_free * (b - a) / 100) | round(0) | int %}
                         {% set p = [p, shading_min_position | int] | max %}
-                        {% set p = [p, 100] | min %}
+                        {% set p = [p, 100, frost_cap | int(100)] | min %}
                         {% if window_sensor is string and (states(window_sensor) | lower) in ['tilted', 'on', 'open'] %}
                           {{ [p, tilted_position | int] | max }}
                         {% else %}
                           {{ p }}
                         {% endif %}
+                      # Blendschutz-Ziel: "leichter" als der Hitzeschutz, nie tiefer als
+                      # die Blendschutz-Position (außer bei Frost, s. frost_cap). Ohne
+                      # Blendschutz = Hitzeschutz-Ziel
+                      glare_target: >-
+                        {% if glare_enabled %}
+                          {{ [[heat_target | int, glare_position | int] | max, frost_cap | int(100)] | min }}
+                        {% else %}
+                          {{ heat_target | int }}
+                        {% endif %}
                       current_position: "{{ state_attr(cover_entity, 'current_position') | int(-1) }}"
                   - condition: "{{ current_position >= 0 }}"
                   - variables:
+                      # Gültiges Ziel: warm = Hitzeschutz, abgekühlt = Blendschutz. Im
+                      # Hysterese-Band oder bei kurz fehlendem Temperaturwert behält eine
+                      # laufende Episode das Ziel, an dem der Rollladen steht (kein Pendeln).
+                      # Ohne Temperaturquelle nie Hitzeschutz. Ohne Blendschutz ist hier
+                      # immer warm = Hitzeschutz-Ziel
+                      target_position: >-
+                        {% set dev_heat = (current_position - heat_target | int) | abs %}
+                        {% set dev_glare = (current_position - glare_target | int) | abs %}
+                        {% if outdoor_temp >= shading_temp_threshold %}
+                          {{ heat_target | int }}
+                        {% elif is_state(shading_status_helper, 'on') and not temp_cooled
+                                and (shading_temp_sensor is string or weather_entity is string)
+                                and dev_heat <= dev_glare %}
+                          {{ heat_target | int }}
+                        {% else %}
+                          {{ glare_target | int }}
+                        {% endif %}
                       deviation: "{{ (current_position - target_position | int) | abs }}"
+                      # Zielwechsel (Hitze- <-> Blendschutz) statt Handeingriff: Der Rollladen
+                      # steht noch genau auf dem anderen Ziel, und die Temperatur hat den
+                      # Schaltpunkt gerade erst überschritten (bis 2 °C über der Schwelle bzw.
+                      # bis 1 °C unter Schwelle minus Hysterese). Sonst zählt nur das gültige
+                      # Ziel — z.B. "per Hand ganz zu" im Winter (Hitzeschutz-Ziel meist 0)
+                      # bleibt ein Eingriff. Ohne Blendschutz (beide Ziele gleich) wirkungslos
+                      target_switch: >-
+                        {% if target_position | int == heat_target | int %}
+                          {{ (current_position - glare_target | int) | abs < shading_min_change
+                             and outdoor_temp < shading_temp_threshold + 2 }}
+                        {% else %}
+                          {{ (current_position - heat_target | int) | abs < shading_min_change
+                             and temp_cooled
+                             and outdoor_temp > shading_temp_threshold - shading_temp_hysteresis - 1 }}
+                        {% endif %}
+                  # Blendschutz fährt nur herunter: Steht der Rollladen beim Start unter der
+                  # Temperatur-Schwelle schon tiefer als das Ziel (z.B. morgens noch zu oder
+                  # per Hand geschlossen), bleibt er dort — es beginnt keine Episode
+                  - condition: >-
+                      {{ is_state(shading_status_helper, 'on')
+                         or outdoor_temp >= shading_temp_threshold
+                         or current_position > target_position | int - shading_min_change }}
                   - if:
                       - "{{ is_state(shading_status_helper, 'on') }}"
                     then:
@@ -1599,7 +1714,7 @@ actions:
                       # wandert pro Tick nur wenige Prozent) — das war ein manueller
                       # Eingriff und wird bis zum Beschattungs-Ende respektiert.
                       - if:
-                          - "{{ deviation >= shading_min_change and deviation <= shading_override_threshold }}"
+                          - "{{ deviation >= shading_min_change and (deviation <= shading_override_threshold or target_switch) }}"
                         then:
                           - action: cover.set_cover_position
                             target:
@@ -1619,12 +1734,14 @@ actions:
                               entity_id: !input cover
                             data:
                               position: "{{ target_position }}"
-              # Beschattung beenden
+              # Beschattung beenden. Mit Blendschutz beendet Abkühlen die Episode
+              # nicht (sonst Ende/Neustart-Pendeln) — sie wechselt oben ins
+              # Blendschutz-Ziel
               - conditions:
                   - "{{ is_state(shading_status_helper, 'on') }}"
                   - >-
                     {{ (not sun_in_window)
-                       or (temp_available and outdoor_temp <= (shading_temp_threshold - shading_temp_hysteresis))
+                       or (not glare_enabled and temp_cooled)
                        or weather_bad_stable
                        or enable_off_stable }}
                   - "{{ not (night_mode_boolean is string and is_state(night_mode_boolean, 'on')) }}"
@@ -1636,7 +1753,7 @@ actions:
                     target:
                       entity_id: !input cover
                     data:
-                      position: !input shading_end_position
+                      position: "{{ [shading_end_position | int(100), frost_cap | int(100)] | min }}"
 
       # --- SONNENHEIZEN (Winter) ---
       - conditions:
