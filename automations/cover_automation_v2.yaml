@@ -497,6 +497,50 @@ blueprint:
               step: 0.5
               mode: slider
               unit_of_measurement: °C
+        shading_start_delay:
+          name: Einschaltverzögerung
+          description: >
+            Die Beschattung startet erst, wenn alle Start-Bedingungen (Sonne im
+            Fenster, Temperatur über der Schwelle, erlaubte Wetterlage,
+            Freigabe-Entität "on", kein Nachtmodus, kein Sturm, keine Pause, kein
+            offenes Fenster) so viele Minuten ununterbrochen erfüllt sind —
+            verhindert Pendeln bei Quellwolken, wenn die Sonne nur kurz
+            durchkommt. Gilt für jeden Start, also auch nach dem Lüften, einem
+            Sturm oder dem morgendlichen Öffnen. Nach einem Neustart von Home
+            Assistant beginnt die Wartezeit von vorn.
+            0 = keine Verzögerung (bisheriges Verhalten: Start beim nächsten
+            5-Minuten-Takt).
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 60
+              step: 1
+              mode: slider
+              unit_of_measurement: Minuten
+        shading_end_delay:
+          name: Ausschaltverzögerung
+          description: >
+            Die Beschattung endet erst, wenn ein Ende-Grund (Sonne nicht mehr im
+            Fenster, Temperatur unter Schwelle minus Hysterese, nicht erlaubte
+            Wetterlage, Freigabe-Entität "off") so viele Minuten ununterbrochen
+            besteht — eine kurze Wolke öffnet den Rollladen dann nicht gleich
+            wieder. Mit gesetztem Wert ersetzt sie die feste 10-Minuten-Trägheit
+            des Wetterlagen-Filters und der Freigabe-Entität — Werte unter 10
+            Minuten beenden bei ausgeschalteter Freigabe bzw. nicht erlaubter
+            Wetterlage also schneller als ganz ohne Verzögerung; empfohlen sind
+            10 Minuten oder mehr.
+            Nach einem Neustart von Home Assistant beginnt die Wartezeit von vorn.
+            0 = keine Verzögerung (bisheriges Verhalten: Ende beim nächsten
+            5-Minuten-Takt).
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 120
+              step: 1
+              mode: slider
+              unit_of_measurement: Minuten
         shading_min_change:
           name: Minimale Positionsänderung
           description: >
@@ -988,6 +1032,8 @@ variables:
   shading_override_threshold: !input shading_override_threshold
   force_shading: !input force_shading
   shading_weather_states: !input shading_weather_states
+  shading_start_delay: !input shading_start_delay
+  shading_end_delay: !input shading_end_delay
   solar_heating_status_helper: !input solar_heating_status_helper
   solar_heating_temp_threshold: !input solar_heating_temp_threshold
   solar_heating_temp_hysteresis: !input solar_heating_temp_hysteresis
@@ -1028,6 +1074,30 @@ variables:
 # Trigger, damit nicht jede Notification-Action jeder Instanz einen Lauf startet
 trigger_variables:
   window_sensor_tv: !input window_sensor
+  # Für die Verzögerungs-Trigger der Beschattung (Template-Trigger sehen die
+  # Werte aus variables: nicht)
+  cover_tv: !input cover
+  shading_start_delay_tv: !input shading_start_delay
+  shading_end_delay_tv: !input shading_end_delay
+  shading_status_helper_tv: !input shading_status_helper
+  window_azimuth_tv: !input window_azimuth
+  shading_fov_left_tv: !input shading_fov_left
+  shading_fov_right_tv: !input shading_fov_right
+  shading_min_elevation_tv: !input shading_min_elevation
+  shading_temp_sensor_tv: !input shading_temp_sensor
+  shading_temp_threshold_tv: !input shading_temp_threshold
+  shading_temp_hysteresis_tv: !input shading_temp_hysteresis
+  shading_weather_states_tv: !input shading_weather_states
+  shading_enable_entity_tv: !input shading_enable_entity
+  weather_entity_tv: !input weather_entity
+  force_shading_tv: !input force_shading
+  treat_open_as_tilted_tv: !input treat_open_as_tilted
+  night_mode_boolean_tv: !input night_mode_boolean
+  storm_enabled_tv: !input storm_enabled
+  storm_wind_sensor_tv: !input storm_wind_sensor
+  wind_speed_threshold_tv: !input wind_speed_threshold
+  pause_boolean_tv: !input pause_boolean
+  pause_mode_tv: !input pause_mode
 
 triggers:
   - trigger: time
@@ -1136,6 +1206,117 @@ triggers:
   - trigger: time_pattern
     minutes: "/5"
     id: shading_tick
+    enabled: !input shading_enabled
+  # Einschaltverzögerung: feuert, wenn eine Beschattung seit shading_start_delay
+  # Minuten ununterbrochen starten KÖNNTE. Bei Verzögerung 0 konstant false (keine
+  # Listener, kein Lauf) — dann startet wie bisher der Tick.
+  # Bewusst ALLE Start-Voraussetzungen des Sonnenschutz-Zweigs inkl. Helfer aus,
+  # Freigabe-Entität, Fenster, Nacht, Sturm, Pause und Cover-Position: Ein
+  # Template-Trigger feuert nur beim Wechsel false -> true. Feuerte er z.B. bei
+  # offenem Fenster, käme nach dem Schließen kein zweiter Anlauf.
+  # KOPIE der Zweig-Variablen sun_in_window/outdoor_temp/weather_ok/storm_ok/
+  # enable_ok/pause_active — Änderungen dort hier und im Ausschalt-Trigger nachziehen!
+  - trigger: template
+    value_template: >-
+      {%- if shading_start_delay_tv | int(0) <= 0
+            or shading_status_helper_tv is not string
+            or is_state(shading_status_helper_tv, 'on') -%}
+        {{ false }}
+      {%- else -%}
+        {%- set elevation = state_attr('sun.sun', 'elevation') | float(0) -%}
+        {%- set azimuth = state_attr('sun.sun', 'azimuth') | float(0) -%}
+        {%- set az_diff = ((azimuth - window_azimuth_tv + 180) % 360) - 180 -%}
+        {%- set sun_in_window = elevation >= shading_min_elevation_tv
+              and az_diff >= (0 - shading_fov_left_tv)
+              and az_diff <= shading_fov_right_tv -%}
+        {%- if shading_temp_sensor_tv is string -%}
+          {%- set temp = states(shading_temp_sensor_tv) | float(-99) -%}
+        {%- elif weather_entity_tv is string -%}
+          {%- set temp = state_attr(weather_entity_tv, 'temperature') | float(-99) -%}
+        {%- else -%}
+          {%- set temp = -99 -%}
+        {%- endif -%}
+        {%- set weather_ok = shading_weather_states_tv | length == 0
+              or weather_entity_tv is not string
+              or states(weather_entity_tv) in ['unknown', 'unavailable']
+              or states(weather_entity_tv) in shading_weather_states_tv -%}
+        {%- if storm_wind_sensor_tv is string -%}
+          {%- set wind = states(storm_wind_sensor_tv) | float(0) -%}
+        {%- elif weather_entity_tv is string -%}
+          {%- set wind = state_attr(weather_entity_tv, 'wind_speed') | float(0) -%}
+        {%- else -%}
+          {%- set wind = 0 -%}
+        {%- endif -%}
+        {%- set storm_ok = not storm_enabled_tv or wind < wind_speed_threshold_tv -%}
+        {%- set night_on = night_mode_boolean_tv is string
+              and is_state(night_mode_boolean_tv, 'on') -%}
+        {%- set enable_ok = shading_enable_entity_tv is not string
+              or is_state(shading_enable_entity_tv, 'on') -%}
+        {%- set window_ok = force_shading_tv or treat_open_as_tilted_tv
+              or window_sensor_tv is not string
+              or (states(window_sensor_tv) | lower) not in ['on', 'open'] -%}
+        {%- set helpers = [pause_boolean_tv] if pause_boolean_tv is string else pause_boolean_tv -%}
+        {%- set pausing = 'on' if pause_mode_tv == 'on_pauses' else 'off' -%}
+        {%- set found = expand(helpers) | list -%}
+        {%- set paused = helpers | length > 0 and found | length > 0
+              and found | rejectattr('state', 'eq', pausing) | list | length == 0 -%}
+        {%- set cover_ok = state_attr(cover_tv, 'current_position') | int(-1) >= 0 -%}
+        {{ sun_in_window and temp >= shading_temp_threshold_tv and weather_ok
+           and enable_ok and storm_ok and not night_on and window_ok and not paused
+           and cover_ok }}
+      {%- endif -%}
+    for:
+      minutes: !input shading_start_delay
+    id: shading_start_delayed
+    enabled: !input shading_enabled
+  # Ausschaltverzögerung: feuert, wenn eine LAUFENDE Beschattung seit
+  # shading_end_delay Minuten ununterbrochen enden müsste. Bei Verzögerung 0
+  # konstant false — dann beendet wie bisher der Tick. Eine nicht verfügbare
+  # Temperaturquelle zählt nicht als Ende-Grund (wie temp_available im Zweig),
+  # ebenso wenig eine nicht verfügbare Freigabe-Entität (nur "off" beendet).
+  # KOPIE der Zweig-Variablen sun_in_window/outdoor_temp/temp_available/
+  # weather_bad/enable_off — Änderungen dort hier und im Einschalt-Trigger nachziehen!
+  - trigger: template
+    value_template: >-
+      {%- if shading_end_delay_tv | int(0) <= 0
+            or shading_status_helper_tv is not string
+            or not is_state(shading_status_helper_tv, 'on') -%}
+        {{ false }}
+      {%- else -%}
+        {%- set elevation = state_attr('sun.sun', 'elevation') | float(0) -%}
+        {%- set azimuth = state_attr('sun.sun', 'azimuth') | float(0) -%}
+        {%- set az_diff = ((azimuth - window_azimuth_tv + 180) % 360) - 180 -%}
+        {%- set sun_in_window = elevation >= shading_min_elevation_tv
+              and az_diff >= (0 - shading_fov_left_tv)
+              and az_diff <= shading_fov_right_tv -%}
+        {%- if shading_temp_sensor_tv is string -%}
+          {%- set temp = states(shading_temp_sensor_tv) | float(-99) -%}
+          {%- set temp_available = has_value(shading_temp_sensor_tv) -%}
+        {%- elif weather_entity_tv is string -%}
+          {%- set temp = state_attr(weather_entity_tv, 'temperature') | float(-99) -%}
+          {%- set temp_available = has_value(weather_entity_tv)
+                and state_attr(weather_entity_tv, 'temperature') is not none -%}
+        {%- else -%}
+          {%- set temp = -99 -%}
+          {%- set temp_available = false -%}
+        {%- endif -%}
+        {%- set weather_bad = shading_weather_states_tv | length > 0
+              and weather_entity_tv is string
+              and states(weather_entity_tv) not in ['unknown', 'unavailable']
+              and states(weather_entity_tv) not in shading_weather_states_tv -%}
+        {%- set enable_off = shading_enable_entity_tv is string
+              and states(shading_enable_entity_tv) == 'off' -%}
+        {#- "< Schwelle": Bei Hysterese 0 darf Gleichstand nicht zugleich Start- und
+            Ende-Bedingung sein — sonst pendelt die Beschattung zwischen beiden Triggern -#}
+        {{ (not sun_in_window)
+           or (temp_available and temp < shading_temp_threshold_tv
+               and temp <= (shading_temp_threshold_tv - shading_temp_hysteresis_tv))
+           or weather_bad
+           or enable_off }}
+      {%- endif -%}
+    for:
+      minutes: !input shading_end_delay
+    id: shading_end_delayed
     enabled: !input shading_enabled
   - trigger: time_pattern
     minutes: "/5"
@@ -1465,7 +1646,10 @@ actions:
       # --- SONNENSCHUTZ ---
       - conditions:
           - condition: trigger
-            id: shading_tick
+            id:
+              - shading_tick
+              - shading_start_delayed
+              - shading_end_delayed
         sequence:
           # Fehlkonfiguration laut machen: Blueprints kennen keine bedingten
           # Pflichtfelder — ohne diesen Hinweis bliebe ein aktivierter Sonnenschutz
@@ -1484,6 +1668,8 @@ actions:
                     Bitte in der Automation einen Helfer auswählen oder den
                     Sonnenschutz deaktivieren.
               - stop: "Sonnenschutz aktiviert, aber kein Status-Helfer konfiguriert"
+          # Start-/Ende-Logik ist in den Verzögerungs-Triggern (shading_start_delayed,
+          # shading_end_delayed) dupliziert — Änderungen hier dort nachziehen!
           - variables:
               sun_elevation: "{{ state_attr('sun.sun', 'elevation') | float(0) }}"
               sun_azimuth: "{{ state_attr('sun.sun', 'azimuth') | float(0) }}"
@@ -1554,9 +1740,45 @@ actions:
                 {{ shading_enable_entity is string
                    and states(shading_enable_entity) == 'off'
                    and (as_timestamp(now()) - as_timestamp(states[shading_enable_entity].last_changed)) > 600 }}
+              # Wetterlage nicht erlaubt, ohne 10-Minuten-Trägheit: gilt bei gesetzter
+              # Ausschaltverzögerung (Trigger UND Neustart-Ersatz im Tick) — dort sorgt
+              # die Verzögerung (for:) für die Stabilität
+              weather_bad: >-
+                {{ shading_weather_states | length > 0
+                   and weather_entity is string
+                   and states(weather_entity) not in ['unknown', 'unavailable']
+                   and states(weather_entity) not in shading_weather_states }}
+              # Freigabe aus, ohne 10-Minuten-Trägheit — gleiche Rolle wie weather_bad
+              enable_off: >-
+                {{ shading_enable_entity is string
+                   and states(shading_enable_entity) == 'off' }}
+              # Ein-/Ausschaltverzögerung: Ist sie gesetzt, startet bzw. beendet nur
+              # der zugehörige Verzögerungs-Trigger, der Tick führt dann nur nach.
+              # Bei 0 bleibt alles beim Tick, die Verzögerungs-Trigger bewirken nichts.
+              # Ausnahme nach einem (Neu-)Start der Automation (HA-Neustart, Neuladen,
+              # Wiedereinschalten — this.last_changed): Ein Template-Trigger, dessen
+              # Bedingung schon beim Start erfüllt ist, feuert erst nach dem nächsten
+              # Wechsel. Diesen Fall fängt einmalig der Tick nach Ablauf der
+              # Verzögerung ab Start auf (10-Minuten-Fenster = sicher ein Tick).
+              minutes_since_setup: >-
+                {{ (as_timestamp(now()) - as_timestamp(this.last_changed, 0)) / 60 }}
+              start_allowed: >-
+                {% set d = shading_start_delay | int(0) %}
+                {{ (trigger.id == 'shading_tick'
+                    and (d <= 0 or (minutes_since_setup >= d and minutes_since_setup < d + 10)))
+                   or (trigger.id == 'shading_start_delayed' and d > 0) }}
+              end_allowed: >-
+                {% set d = shading_end_delay | int(0) %}
+                {{ (trigger.id == 'shading_tick'
+                    and (d <= 0 or (minutes_since_setup >= d and minutes_since_setup < d + 10)))
+                   or (trigger.id == 'shading_end_delayed' and d > 0) }}
           - choose:
               # Beschattung starten / der Sonne nachführen
               - conditions:
+                  # Nachführen nur im Tick, Starten nur, wenn dieser Lauf es darf (s.o.)
+                  - >-
+                    {{ start_allowed
+                       or (trigger.id == 'shading_tick' and is_state(shading_status_helper, 'on')) }}
                   - "{{ sun_in_window and outdoor_temp >= shading_temp_threshold }}"
                   - "{{ storm_ok }}"
                   - "{{ weather_ok }}"
@@ -1621,12 +1843,13 @@ actions:
                               position: "{{ target_position }}"
               # Beschattung beenden
               - conditions:
+                  - "{{ end_allowed }}"
                   - "{{ is_state(shading_status_helper, 'on') }}"
                   - >-
                     {{ (not sun_in_window)
                        or (temp_available and outdoor_temp <= (shading_temp_threshold - shading_temp_hysteresis))
-                       or weather_bad_stable
-                       or enable_off_stable }}
+                       or (weather_bad if shading_end_delay | int(0) > 0 else weather_bad_stable)
+                       or (enable_off if shading_end_delay | int(0) > 0 else enable_off_stable) }}
                   - "{{ not (night_mode_boolean is string and is_state(night_mode_boolean, 'on')) }}"
                 sequence:
                   - action: input_boolean.turn_off
