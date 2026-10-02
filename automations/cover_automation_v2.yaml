@@ -166,7 +166,9 @@ blueprint:
           name: Zeitfenster für automatisches Zurückfahren
           description: >
             Wird das Fenster innerhalb dieser Zeit wieder geschlossen, fährt der
-            Rollladen in seine Ausgangsposition zurück.
+            Rollladen in seine Ausgangsposition zurück — außer eine Automatik-Fahrt
+            (Morgens öffnen, Ende der Beschattung, Sonnenheizen) hat ihn
+            inzwischen bewegt, dann bleibt er, wo er ist.
           default: 30
           selector:
             number:
@@ -1637,6 +1639,16 @@ actions:
                       entity_id: !input cover
                     data:
                       position: !input shading_end_position
+                  # Wie beim Morgens-Öffnen: Endet die Beschattung während des Lüftens,
+                  # ist die gemerkte Ausgangsposition veraltet — sonst holt das
+                  # Zurückfahren nach dem Schließen die alte Beschattungs-Position zurück
+                  - if:
+                      - "{{ window_sensor is string and (states(window_sensor) | lower) not in ['off', 'closed'] }}"
+                      - "{{ expand('scene.reclose_' ~ (cover_entity | slugify)) | count > 0 }}"
+                    then:
+                      - action: scene.delete
+                        target:
+                          entity_id: "{{ 'scene.reclose_' ~ (cover_entity | slugify) }}"
 
       # --- SONNENHEIZEN (Winter) ---
       - conditions:
@@ -1726,6 +1738,17 @@ actions:
                         {% else %}
                           {{ solar_heating_position | int(100) }}
                         {% endif %}
+                  # Wie beim Morgens-Öffnen: Öffnet Sonnenheizen während des Lüftens,
+                  # ist die gemerkte Ausgangsposition veraltet — sonst fährt das
+                  # Zurückfahren wieder zu, und der gesetzte Status-Helfer verhindert
+                  # ein erneutes Öffnen
+                  - if:
+                      - "{{ window_sensor is string and (states(window_sensor) | lower) not in ['off', 'closed'] }}"
+                      - "{{ expand('scene.reclose_' ~ (cover_entity | slugify)) | count > 0 }}"
+                    then:
+                      - action: scene.delete
+                        target:
+                          entity_id: "{{ 'scene.reclose_' ~ (cover_entity | slugify) }}"
               # Sonnenheizen beenden: nur Status zurücksetzen, kein erzwungenes Schließen —
               # der Rollladen bleibt offen, bis Nachtmodus/Fenster-Interaktion ihn regulär bewegen
               - conditions:

@@ -288,10 +288,10 @@ komplett offen?
 
 **Warum fährt der Rollladen nach dem Lüften zurück?** Beim Öffnen des Fensters merkt
 sich die Automation die Ausgangsposition und stellt sie nach dem Schließen wieder her
-(innerhalb des einstellbaren Zeitfensters). Kam inzwischen Nachtmodus, Sturm oder das
-morgendliche Öffnen, wird stattdessen deren Zustand hergestellt — die gemerkte
-Position gilt als veraltet, sobald die Automatik den Rollladen aus anderem Grund
-legitim bewegt hat.
+(innerhalb des einstellbaren Zeitfensters). Kam inzwischen Nachtmodus, Sturm, das
+morgendliche Öffnen, das Ende der Beschattung oder das Sonnenheizen, wird stattdessen
+deren Zustand hergestellt — die gemerkte Position gilt als veraltet, sobald die
+Automatik den Rollladen aus anderem Grund legitim bewegt hat.
 
 **Kann ich denselben Status-Helfer für mehrere Fenster verwenden?** Nein — er
 speichert den Zustand genau eines Fensters. Ein geteilter Helfer führt zu falschem
