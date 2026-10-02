@@ -67,8 +67,12 @@ Fenster, bis der Helfer gesetzt oder das Feature deaktiviert ist.
 | Moskito-Modus       | Schaltet beim Fensteröffnen nach Sonnenuntergang die Lichter im Raum aus (mit Ausnahmen)                                                                                 | Fenstersensor                                                        |
 | Benachrichtigungen  | Meldet zu lange offene/gekippte Fenster aufs Handy, mit "Rollladen schließen"-Button; verschwindet automatisch beim Schließen                                            | Companion-App-Geräte, Fenstersensor                                  |
 | Pausieren           | Hält die komplette Automation an, solange ein Helfer eingeschaltet ist — z.B. während Videoaufnahmen oder wenn Gäste schlafen                                            | `input_boolean`-Helfer (optional)                                    |
+| Hindernis-Sperre    | Fährt nicht nach unten, solange ein Sperr-Sensor an ist (z.B. Fliegengittertür offen, jemand auf der Terrasse); mit Wartezeit                                            | Kontakt-/Präsenzsensor (optional)                                    |
 
-**Prioritäten:** Der **Sturmschutz gewinnt immer** — bei Starkwind bewegen weder
+**Prioritäten:** Ganz oben steht die **Hindernis-Sperre** — allerdings nur für Fahrten
+nach unten: Solange ein Sperr-Sensor an ist, fährt die Automatik den Rollladen nicht
+herunter, auch nicht für Nachtmodus, Panzer-Modus oder den Benachrichtigungs-Knopf.
+Ansonsten **gewinnt der Sturmschutz immer** — bei Starkwind bewegen weder
 Morgens-Öffnen noch Beschattung, Sonnenheizen oder das Zurückfahren den Rollladen,
 und auch der Pausier-Helfer hält ihn nicht auf (Schutz der Hardware geht vor).
 Danach kommt die Pause (solange ihr Helfer an ist, passiert sonst gar nichts),
@@ -199,6 +203,54 @@ Wandtaster kam (die Positions-Rückmeldung kommt immer vom Gerät selbst). Ein
 neustartfest zu speichern — und genau darauf bauen das automatische Wiederöffnen,
 die Einmal-Logik des Sonnenheizens und die Eingriffs-Erkennung auf.
 
+### Hindernis-Sperre (Fliegengittertür, Terrasse)
+
+Manche Hindernisse sieht der Fensterkontakt nicht: eine offene Fliegengittertür vor
+der Balkontür (der Panzer läuft auf und hakt im Kasten aus) oder jemand, der abends
+auf der Terrasse sitzt, während die Tür längst zu ist. Dafür gibt es die
+Sperr-Sensoren — ein oder mehrere `binary_sensor`- oder `input_boolean`-Entitäten
+(Türkontakt, Präsenzmelder, ein Schalter "Terrasse besetzt"). Solange einer davon
+**an** ist, fährt die Automatik den Rollladen **nicht nach unten**:
+
+- **Gesperrt:** Nachtmodus (auch Lüftungs- und Kipp-Position), das Nachholen nach dem
+  Pause-Ende und beim Schließen des Fensters, Beschattung (Start, Nachführen und ein
+  Ende auf eine tiefere Position), Sturmschutz im Panzer-Modus, "Schließen
+  erzwingen", das Zurückfahren nach dem Lüften und der "Rollladen schließen"-Knopf
+  einer Benachrichtigung — Sicherheit vor Komfort, vom Handy aus sieht man die offene
+  Fliegengittertür nicht. Sturm-Öffnung und Sonnenheizen bleiben stehen, falls ihr
+  (z. B. frostbegrenztes) Ziel tiefer liegt als der Rollladen.
+- **Weiter erlaubt:** alle Fahrten nach oben — morgens öffnen, Fenster öffnen/kippen,
+  Sonnenheizen, Sturm ohne Panzer-Modus, Beschattungs-Ende nach oben.
+
+Die **Wartezeit bis zur Freigabe** verlängert die Sperre: Erst wenn alle Sperr-Sensoren
+so lange aus sind, gilt sie als aufgehoben — praktisch für Präsenzmelder, die
+zwischendurch kurz "frei" melden. Danach stellt die Automation einen eingeschalteten
+Nachtmodus her (fensterabhängig wie beim Pause-Ende; bei anhaltendem Sturm hat der
+Sturmschutz Vorrang, im Panzer-Modus wird dann geschlossen) und gibt den
+Beschattungs-Status frei, damit der nächste Tick frisch beschattet. Endet die Sperre
+während einer Pause, holt erst das Pause-Ende den Nachtmodus nach — nur das
+Panzer-Schließen bei Sturm kommt sofort, denn der Sturmschutz durchbricht auch die
+Pause.
+
+**Nicht verfügbar heißt gesperrt:** Meldet ein Sperr-Sensor `unavailable` oder
+`unknown` (leere Batterie, Funkproblem, gelöschte Entität), gilt das als Hindernis.
+"Unbekannt" ist bei einer Fliegengittertür kein Beweis für "zu", und ein ausgehakter
+Panzer ist teurer als ein Rollladen, der eine Nacht oben bleibt. Meldet der Sensor
+danach wieder "aus" (Neustart, Funk-Aussetzer), holt die Freigabe nur das
+Panzer-Schließen bei Sturm nach und einen Nachtmodus, der erst während des Ausfalls
+eingeschaltet wurde (mindestens 5 Minuten nach dessen Beginn); der
+Beschattungs-Status bleibt unverändert. So fährt ein nachts von Hand geöffneter
+Rollladen nach einem Aussetzer nicht zu, und ein manueller Eingriff während der
+Beschattung bleibt gültig.
+
+**Sperre oder Fenstergruppe?** Die FAQ "Mehrere Kontakte an einem Rollladen
+(Doppelflügel, Fliegengittertür)?" unten beschreibt, wie man Fensterflügel und
+Fliegengittertür zu einer Fenstergruppe zusammenfasst. Dann zählt die offene
+Fliegengittertür als offenes Fenster: Der Rollladen fährt zum Lüften hoch, nachts auf
+die Lüftungsposition, und es kommen Fenster-Meldungen. Soll die Tür dagegen nur das
+Herunterfahren verhindern, ohne die Fenster-Logik auszulösen, gehört sie in die
+Sperr-Sensoren.
+
 ## Bekannte Grenzen
 
 - **Wind-Sensor kurz nicht verfügbar** zählt als "windstill". Bewusste Entscheidung:
@@ -219,6 +271,33 @@ die Einmal-Logik des Sonnenheizens und die Eingriffs-Erkennung auf.
   betreten, öffnet er erneut. Wer das nicht will, nutzt den Pausier-Helfer.
 - **Frostschutz** begrenzt die automatischen Fahrten, nicht das Zurückfahren auf eine
   gemerkte Ausgangsposition nach dem Lüften (die war ja bereits erreicht).
+- **Hindernis-Sperre gilt nur für diese Automation:** Wandtaster, Szenen und andere
+  Automationen fahren den Rollladen weiterhin herunter. Fahrten nach oben laufen auch
+  während der Sperre. Die Sperre verhindert nur den _Start_ einer Abwärtsfahrt — wird
+  die Fliegengittertür während einer laufenden Fahrt geöffnet, stoppt sie nicht.
+- **Nach der Sperre** werden nur Nachtmodus und Panzer-Schließen bei Sturm nachgeholt
+  (nach einem bloßen Sensor-Ausfall der Nachtmodus nur, wenn er währenddessen begann,
+  siehe oben).
+  Ausgelassene Einzelfahrten (Zurückfahren nach dem Lüften, "Schließen erzwingen",
+  Knopf-Druck) entfallen — tagsüber bleibt der Rollladen dann oben, bis das nächste
+  Ereignis ihn übernimmt. Umgekehrt stellt jede Freigabe nach einer echten Sperre
+  einen eingeschalteten Nachtmodus her, auch wenn der Rollladen zwischendurch von Hand
+  geöffnet wurde (wie beim Pause-Ende). Außerdem setzt sie den Beschattungs-Status
+  zurück: Ein manueller Eingriff während der Beschattung ist danach vergessen.
+- **Sensor-Ausfall während einer echten Sperre:** Fällt ein Sperr-Sensor aus, während
+  er "an" meldet, und meldet er danach direkt "aus" (z. B. die Tür wurde in der
+  Zwischenzeit geschlossen), zählt das Ende als bloßer Ausfall. Ein schon in der
+  "an"-Phase gesperrter Nachtmodus wird dann nicht nachgeholt. Dasselbe gilt bei
+  mehreren Sperr-Sensoren, wenn der zuletzt freigegebene nur ausgefallen war — der
+  Rollladen bleibt dann bis zum nächsten regulären Ereignis oben.
+- **Dauerhaft toter Sperr-Sensor** verhindert dauerhaft jedes automatische
+  Herunterfahren (siehe oben).
+- **Neustart während der Wartezeit:** Ein Neustart von Home Assistant oder ein
+  Neuladen der Automation kann das Nachholen verhindern — laufende Wartezeiten gehen
+  verloren, und weil die Zeitstempel der Sensoren beim Start neu gesetzt werden, gilt
+  die Sperre danach noch einmal für die volle Wartezeit. Ein in diesem Fenster
+  eingeschalteter Nachtmodus wird dann erst beim nächsten regulären Ereignis
+  hergestellt.
 
 ## FAQ
 
@@ -291,7 +370,8 @@ sich die Automation die Ausgangsposition und stellt sie nach dem Schließen wied
 (innerhalb des einstellbaren Zeitfensters). Kam inzwischen Nachtmodus, Sturm oder das
 morgendliche Öffnen, wird stattdessen deren Zustand hergestellt — die gemerkte
 Position gilt als veraltet, sobald die Automatik den Rollladen aus anderem Grund
-legitim bewegt hat.
+legitim bewegt hat. Meldet ein Sperr-Sensor der Hindernis-Sperre noch ein Hindernis,
+bleibt der Rollladen stehen.
 
 **Kann ich denselben Status-Helfer für mehrere Fenster verwenden?** Nein — er
 speichert den Zustand genau eines Fensters. Ein geteilter Helfer führt zu falschem
