@@ -67,6 +67,7 @@ Fenster, bis der Helfer gesetzt oder das Feature deaktiviert ist.
 | Moskito-Modus       | Schaltet beim Fensteröffnen nach Sonnenuntergang die Lichter im Raum aus (mit Ausnahmen)                                                                                 | Fenstersensor                                                        |
 | Benachrichtigungen  | Meldet zu lange offene/gekippte Fenster aufs Handy, mit "Rollladen schließen"-Button; verschwindet automatisch beim Schließen                                            | Companion-App-Geräte, Fenstersensor                                  |
 | Pausieren           | Hält die komplette Automation an, solange ein Helfer eingeschaltet ist — z.B. während Videoaufnahmen oder wenn Gäste schlafen                                            | `input_boolean`-Helfer (optional)                                    |
+| Nach Neustart       | Holt nach einem HA-Neustart ein verpasstes Morgens-Öffnen (bis 2 h danach) nach bzw. stellt einen aktiven Nachtmodus wieder her                                          | — (Schalter, standardmäßig aus)                                      |
 
 **Prioritäten:** Der **Sturmschutz gewinnt immer** — bei Starkwind bewegen weder
 Morgens-Öffnen noch Beschattung, Sonnenheizen oder das Zurückfahren den Rollladen,
@@ -199,6 +200,49 @@ Wandtaster kam (die Positions-Rückmeldung kommt immer vom Gerät selbst). Ein
 neustartfest zu speichern — und genau darauf bauen das automatische Wiederöffnen,
 die Einmal-Logik des Sonnenheizens und die Eingriffs-Erkennung auf.
 
+### Nach einem Neustart von Home Assistant
+
+Zeitpunkt-Ereignisse gibt es nur, solange Home Assistant läuft: Fällt der
+Morgens-Zeitpunkt (Uhrzeit bzw. Sonnenaufgang) in einen Neustart (typisch: ein Update
+am frühen Morgen), bleibt der Rollladen an diesem Tag zu. Ebenso kann ein kurz vor
+dem Herunterfahren eingeschalteter Nachtmodus seinen Fahrbefehl verlieren. Mit dem
+Schalter **"Nach Neustart nachholen"** (Abschnitt "Nach HA-Neustart", standardmäßig
+aus) bewertet die Automation den Zustand 60 Sekunden nach dem Start neu — dann sind
+Integrationen, Rollladen und Sensoren in der Regel wieder verfügbar:
+
+1. **Pause aktiv oder Sturm?** Dann passiert nichts.
+2. **Morgens-Zeitpunkt höchstens 2 Stunden her?** Dann fährt der Rollladen wie beim
+   Morgens-Öffnen auf die Zielposition, sofern er geschlossener ist. Der
+   Morgens-Zeitpunkt wird dabei genauso bestimmt wie beim regulären Öffnen (im
+   Sonnenaufgangs-Modus der spätere von Sonnenaufgang und Uhrzeit), und auch der
+   Frostschutz begrenzt die Fahrt. Ein noch eingeschalteter Nachtmodus hat wie dort
+   Vorrang: Der Rollladen bleibt zu, das Öffnen holt dann das Ende des Nachtmodus
+   nach. Im Bewegungs-Modus wird nichts nachgeholt — dort öffnet die nächste Bewegung
+   im Raum. Läuft gerade eine Beschattung oder hat Sonnenheizen geöffnet
+   (Status-Helfer an), bleibt der Rollladen, wie er ist.
+3. **Nachtmodus an und es ist Nacht?** "Nacht" heißt hier: Die Sonne steht unter dem
+   Horizont, und es ist Abend oder der Morgens-Zeitpunkt steht noch bevor (ohne
+   Morgens-Öffnen und im Bewegungs-Modus gilt die Nacht bis Sonnenaufgang). Dann wird
+   der Nachtzustand hergestellt wie beim Einschalten des Nachtmodus — bei geschlossenem
+   Fenster (oder ohne Fenstersensor) zu bzw. auf die Nacht-Zielposition, bei gekipptem
+   oder offenem Fenster die Lüftungsposition.
+   Anders als beim Einschalten fährt der Rollladen bei gekipptem oder offenem Fenster
+   dabei nur hoch, nie herunter: Der Neustart kommt zu einem beliebigen Zeitpunkt, und
+   wer gerade auf dem Balkon steht, soll nicht ausgesperrt werden. Ist ein
+   Fensterkontakt ausgewählt, aber nicht verfügbar, wird nichts bewegt.
+
+Tagsüber wird ein noch eingeschalteter Nachtmodus bewusst **nicht** wiederhergestellt:
+Ist der Rollladen dann offen, hat ihn jemand trotz Nachtmodus von Hand geöffnet — ein
+Neustart soll ihn nicht mitten am Tag schließen.
+
+**Warum nur 2 Stunden?** Das Nachholen soll einen Neustart _über_ den
+Morgens-Zeitpunkt hinweg abfangen. Je später der Neustart, desto wahrscheinlicher ist
+ein geschlossener Rollladen Absicht — Mittagsschlaf, Kinderzimmer, Hitze. Ein Öffnen
+am Nachmittag wäre dann kein Nachholen, sondern ein Fehler.
+
+Beschattung und Sonnenheizen brauchen kein Nachholen: Ihre 5-Minuten-Durchläufe
+übernehmen nach dem Start von selbst.
+
 ## Bekannte Grenzen
 
 - **Wind-Sensor kurz nicht verfügbar** zählt als "windstill". Bewusste Entscheidung:
@@ -210,6 +254,8 @@ die Einmal-Logik des Sonnenheizens und die Eingriffs-Erkennung auf.
 - **Cover ohne Positions-Angabe** (nur auf/zu): Morgens-Öffnen funktioniert,
   Kipp-Position, Beschattung, Nacht-Zielposition und Frost-Begrenzung werden
   übersprungen — sie brauchen Positionsdaten.
+  Nach einem Neustart wird das Morgens-Öffnen bei ihnen nur nachgeholt, wenn sie als
+  geschlossen gemeldet werden (nicht bei "unbekannt").
 - **Windgeschwindigkeit** wird roh mit dem Grenzwert verglichen — liefert deine Quelle
   m/s statt km/h, muss der Grenzwert entsprechend gesetzt werden.
 - **Sturm-Ende:** Nach dem Sturm bleibt der Rollladen in der Schutzposition, bis das
@@ -219,6 +265,36 @@ die Einmal-Logik des Sonnenheizens und die Eingriffs-Erkennung auf.
   betreten, öffnet er erneut. Wer das nicht will, nutzt den Pausier-Helfer.
 - **Frostschutz** begrenzt die automatischen Fahrten, nicht das Zurückfahren auf eine
   gemerkte Ausgangsposition nach dem Lüften (die war ja bereits erreicht).
+- **Neustart während des Lüftens:** Das Zurückfahren nach dem Schließen des Fensters
+  wird nicht nachgeholt — die gemerkte Ausgangsposition und die Wartezeit gehen beim
+  Neustart verloren. Der Rollladen bleibt in der Lüftungsposition, bis das nächste
+  reguläre Ereignis ihn übernimmt.
+- **Nachholen nach Neustart** kann nicht unterscheiden, ob ein Ereignis verpasst,
+  bewusst ausgelassen oder danach von Hand rückgängig gemacht wurde: Innerhalb der
+  2 Stunden nach dem Morgens-Zeitpunkt öffnet ein Neustart auch einen Rollladen, den
+  jemand nach dem Morgens-Öffnen wieder geschlossen hat oder dessen Morgens-Öffnen in
+  eine Pause fiel. Bei aktivem Nachtmodus fährt ein nachts von Hand geöffneter
+  Rollladen bei geschlossenem Fenster wieder zu. Das ist bewusst so: Ohne den Schalter
+  wertet die Automation einen Neustart gerade nicht als Einschalten des Nachtmodus —
+  dessen Trigger reagiert nur auf "aus" → "an", damit ein Sensor, der beim Start von
+  "unbekannt" auf "an" springt, nicht nachts alle Rollläden zufährt. Wer das Nachholen
+  einschaltet, entscheidet sich ausdrücklich dafür, den Nachtzustand nach einem
+  Neustart wiederherzustellen.
+- **Veralteter Fensterkontakt nach Neustart:** Manche Integrationen stellen nach dem
+  Start den letzten bekannten Zustand wieder her, und batteriebetriebene Kontakte
+  melden sich erst bei der nächsten Änderung. Wurde die Balkontür während des
+  Neustarts geöffnet und meldet der Kontakt noch "zu", schließt das Nachholen bei
+  aktivem Nachtmodus den Rollladen — ⚠️ Aussperr-Gefahr.
+- **Grenzen des Nachholens:** Wird der Nachtmodus-Helfer selbst zeitgesteuert
+  geschaltet und fiel dieser Zeitpunkt in den Neustart, ist der Helfer noch aus — dann
+  gibt es nichts nachzuholen. Endet der Nachtmodus während des Neustarts, wird das
+  Öffnen nur nachgeholt, wenn der Morgens-Zeitpunkt höchstens 2 Stunden zurückliegt.
+  Steht die Sonne über dem Horizont oder ist der Morgens-Zeitpunkt (nach Mitternacht)
+  schon vorbei, wird ein aktiver Nachtmodus nicht wiederhergestellt — ohne die
+  Integration "Sonne" (`sun.sun`) also nie. Ist der Rollladen nach 60 Sekunden noch
+  nicht verfügbar, unterbleibt das Nachholen; ist ein Fensterkontakt ausgewählt, aber
+  nicht verfügbar, wird der Nachtzustand nicht hergestellt. Einen zweiten Versuch gibt
+  es nicht. Ein bloßes Neuladen der Automationen zählt nicht als Neustart.
 
 ## FAQ
 
@@ -300,6 +376,14 @@ speichert den Zustand genau eines Fensters. Ein geteilter Helfer führt zu falsc
 **Sonnenschutz und Sonnenheizen gleichzeitig aktiv — geht das?** Ja, das ist der
 Normalfall. Die Temperatur-Schwellen trennen sie (Standard: beschatten über 25 °C,
 heizen unter 12 °C); die Schwellen sollten sich nicht überlappen.
+
+**Home Assistant hat genau zum Morgens-Zeitpunkt (Uhrzeit bzw. Sonnenaufgang) neu
+gestartet — warum blieb der Rollladen zu?** Ein verpasster Zeitpunkt wird
+standardmäßig nicht nachgeholt. Mit dem Schalter "Nach Neustart nachholen" (Abschnitt
+"Nach HA-Neustart") öffnet die Automation nach dem Start nachträglich, sofern der
+Neustart höchstens 2 Stunden nach dem Morgens-Zeitpunkt liegt — bei aktivem
+Nachtmodus wird wie beim regulären Morgens-Öffnen nicht geöffnet. Details unter
+[Nach einem Neustart von Home Assistant](#nach-einem-neustart-von-home-assistant).
 
 **Die Fenster-offen-Meldung bleibt auf dem Handy stehen?** Sie verschwindet
 automatisch, sobald das Fenster geschlossen wird — vorausgesetzt, die Companion-App
