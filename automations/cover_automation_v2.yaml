@@ -640,6 +640,52 @@ blueprint:
           selector:
             entity:
               domain: input_boolean
+        solar_weather_states:
+          name: Wetterlagen für das Sonnenheizen (optional)
+          description: >
+            Das Sonnenheizen wird nur ausgeführt, wenn die Wetter-Entität (siehe
+            Sturmschutz weiter unten) eine der hier ausgewählten Wetterlagen meldet.
+            So wird verhindert, dass die Sonnenheizung beispielsweise bei „bewölkt“
+            trotz rechnerisch passendem Sonnenstand und passender Außentemperatur unnötig aktiviert wird.
+            Leer lassen, um die Wetterlage zu ignorieren (Standardverhalten wie bisher
+            – nur Sonnenstand und Temperatur entscheiden). Ist keine Wetter-Entität festgelegt,
+            wird dieser Filter ebenfalls ignoriert, auch wenn hier Wetterlagen ausgewählt sind.
+          default: []
+          selector:
+            select:
+              multiple: true
+              mode: list
+              options:
+                - value: sunny
+                  label: "☀️ Sonnig"
+                - value: partlycloudy
+                  label: "⛅ Teilweise bewölkt"
+                - value: cloudy
+                  label: "☁️ Bewölkt"
+                - value: clear-night
+                  label: "🌙 Klare Nacht"
+                - value: fog
+                  label: "🌫️ Nebel"
+                - value: windy
+                  label: "💨 Windig"
+                - value: windy-variant
+                  label: "💨 Windig mit Wolken"
+                - value: rainy
+                  label: "🌧️ Regnerisch"
+                - value: pouring
+                  label: "🌧️ Starkregen"
+                - value: lightning
+                  label: "⛈️ Gewitter"
+                - value: lightning-rainy
+                  label: "⛈️ Gewitter mit Regen"
+                - value: hail
+                  label: "🌨️ Hagel"
+                - value: snowy
+                  label: "❄️ Schnee"
+                - value: snowy-rainy
+                  label: "🌨️ Schneeregen"
+                - value: exceptional
+                  label: "⚠️ Außergewöhnlich"
         solar_heating_temp_threshold:
           name: Temperatur-Schwelle
           description: >
@@ -1099,6 +1145,7 @@ variables:
   solar_heating_temp_hysteresis: !input solar_heating_temp_hysteresis
   solar_heating_min_position: !input solar_heating_min_position
   solar_heating_position: !input solar_heating_position
+  solar_weather_states: !input solar_weather_states
   mosquito_area_input: !input mosquito_area
   mosquito_exclude: !input mosquito_exclude
   pause_boolean: !input pause_boolean
@@ -1771,9 +1818,8 @@ actions:
                 {{ sun_elevation >= shading_min_elevation
                    and az_diff >= (0 - shading_fov_left)
                    and az_diff <= shading_fov_right }}
-              # Fallback +99 (statt -99 wie beim Sonnenschutz): fehlt die
-              # Temperaturquelle, soll die "<= Schwelle"-Prüfung sicher scheitern,
-              # damit Sonnenheizen ohne Datenquelle einfach aus bleibt statt zu spinnen
+              # Fallback +99: Fehlt die Temperaturquelle, soll die
+              # Sonnenheizung sicher ausgeschaltet bleiben.
               outdoor_temp: >-
                 {% if shading_temp_sensor is string %}
                   {{ states(shading_temp_sensor) | float(99) }}
@@ -1782,8 +1828,7 @@ actions:
                 {% else %}
                   99
                 {% endif %}
-              # Ein unavailable-Blip der Temperaturquelle darf die Einmal-Semantik
-              # nicht brechen (sonst: Helfer-Reset -> erneutes Aufdrängen nach Blip)
+              # Prüfen, ob eine gültige Temperatur verfügbar ist.
               temp_available: >-
                 {% if shading_temp_sensor is string %}
                   {{ has_value(shading_temp_sensor) }}
@@ -1792,6 +1837,27 @@ actions:
                 {% else %}
                   false
                 {% endif %}
+              # Wetterlagen-Filter für das Sonnenheizen:
+              # Ohne Auswahl (leer) wird das Sonnenheizen wie bisher ausschließlich
+              # anhand von Sonnenstand und Temperatur gesteuert.
+              # Ohne gesetzte Wetter-Entität oder bei unavailable/unknown wird
+              # der Wetterfilter ebenfalls ignoriert.
+              solar_weather_ok: >-
+                {{ solar_weather_states | length == 0
+                   or not (weather_entity is string)
+                   or states(weather_entity) in ['unknown', 'unavailable']
+                   or states(weather_entity) in solar_weather_states }}
+
+              # Beenden nur bei STABIL nicht erlaubter Wetterlage
+              # (mindestens 10 Minuten unverändert).
+              # Dadurch werden unnötige Positionsänderungen bei häufig
+              # wechselnden Wetterzuständen vermieden.
+              solar_weather_bad_stable: >-
+                {{ solar_weather_states | length > 0
+                   and weather_entity is string
+                   and states(weather_entity) not in ['unknown', 'unavailable']
+                   and states(weather_entity) not in solar_weather_states
+                   and (as_timestamp(now()) - as_timestamp(states[weather_entity].last_changed)) > 600 }}
               night_mode_on: "{{ night_mode_boolean is string and is_state(night_mode_boolean, 'on') }}"
               wind_now: >-
                 {% if storm_wind_sensor is string %}
@@ -1803,20 +1869,20 @@ actions:
                 {% endif %}
               storm_ok: "{{ not storm_enabled or (wind_now | float(0)) < wind_speed_threshold }}"
           - choose:
-              # Sonnenheizen starten: heruntergelassenen Rollladen öffnen.
-              # Der Sturmschutz hat immer Vorrang: bei Starkwind wird nicht geöffnet
-              # (im Panzer-Modus wäre das direkt kontraproduktiv)
+              # Sonnenheizen starten:
+              # Rollladen öffnen, wenn Sonnenstand, Temperatur,
+              # Wetterlage und Sturmschutz passen.
               - conditions:
                   - "{{ not is_state(solar_heating_status_helper, 'on') }}"
                   - "{{ sun_in_window and outdoor_temp <= solar_heating_temp_threshold }}"
                   - "{{ not night_mode_on }}"
                   - "{{ storm_ok }}"
+                  - "{{ solar_weather_ok }}"
                   - >-
                     {{ state_attr(cover_entity, 'current_position') is not none
                        and state_attr(cover_entity, 'current_position') | int(101) < solar_heating_min_position }}
                 sequence:
-                  # Helfer zuerst setzen: verhindert, dass ein manuelles Wieder-Runterfahren
-                  # im selben Zeitraum sofort erneut aufgedrängt wird (kein Ping-Pong)
+                  # Helfer zuerst setzen: verhindert unnötiges erneutes Aufdrängen.
                   - action: input_boolean.turn_on
                     target:
                       entity_id: "{{ solar_heating_status_helper }}"
@@ -1824,27 +1890,29 @@ actions:
                     target:
                       entity_id: !input cover
                     data:
-                      # Sonnenheizen trifft naturgemäß auf kalte Morgen — bei Frost
-                      # nur bis zur schonenden Maximal-Position öffnen
+                      # Bei Frost nur bis zur schonenden Maximal-Position öffnen.
                       position: >-
                         {% if frost_active %}
                           {{ [solar_heating_position | int(100), frost_max_position | int(100)] | min }}
                         {% else %}
                           {{ solar_heating_position | int(100) }}
                         {% endif %}
-              # Sonnenheizen beenden: nur Status zurücksetzen, kein erzwungenes Schließen —
-              # der Rollladen bleibt offen, bis Nachtmodus/Fenster-Interaktion ihn regulär bewegen
+              # Sonnenheizen beenden:
+              # Nur Status zurücksetzen, kein erzwungenes Schließen.
+              # Die Abschaltung erfolgt bei fehlendem Sonnenstand,
+              # zu hoher Temperatur, Nachtmodus oder stabil schlechter Wetterlage.
               - conditions:
                   - "{{ is_state(solar_heating_status_helper, 'on') }}"
                   - >-
                     {{ (not sun_in_window)
                        or (temp_available and outdoor_temp >= (solar_heating_temp_threshold + solar_heating_temp_hysteresis))
-                       or night_mode_on }}
+                       or night_mode_on
+                       or solar_weather_bad_stable }}
                 sequence:
                   - action: input_boolean.turn_off
                     target:
                       entity_id: "{{ solar_heating_status_helper }}"
-
+                      
       # --- MOSKITO-MODUS: LICHTER AUS ---
       - conditions:
           - condition: trigger
