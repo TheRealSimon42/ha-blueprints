@@ -72,6 +72,41 @@ def main(path):
     used = set()
     collect_used({k: v for k, v in doc.items() if k != "blueprint"}, used)
 
+    # --- Bedingte Sichtbarkeit (visible:, ab HA 2026.11) ---
+    # HA prüft nicht, ob das referenzierte Feld existiert — ein Tippfehler
+    # blendet den Input für immer aus (und setzt ihn auf seinen Default)
+    def visible_conditions(block):
+        for key, value in (block or {}).items():
+            if not isinstance(value, dict):
+                continue
+            vis = value.get("visible")
+            if isinstance(vis, dict):
+                vis = [vis]
+            for cond in vis if isinstance(vis, list) else []:
+                yield key, cond
+            if "input" in value:
+                yield from visible_conditions(value["input"])
+
+    conditions = list(visible_conditions(bp.get("input", {})))
+    for key, cond in conditions:
+        field = cond.get("field") if isinstance(cond, dict) else None
+        if field not in defined:
+            errors.append(f"visible bei '{key}' verweist auf unbekannten Input: {field!r}")
+        elif cond.get("operator") in ("exists", "not_exists") and defined[field].get(
+            "default"
+        ) == []:
+            warnings.append(
+                f"visible bei '{key}': exists/not_exists auf '{field}' mit default [] "
+                "greift nie — eine leere Liste zählt für HA als vorhandener Wert."
+            )
+    if conditions:
+        min_version = str(bp.get("homeassistant", {}).get("min_version", "0.0.0"))
+        if tuple(int(x) for x in min_version.split(".")[:2]) < (2026, 11):
+            errors.append(
+                "visible: braucht homeassistant.min_version >= 2026.11.0 — ältere "
+                "Versionen lehnen das Blueprint als ungültig ab."
+            )
+
     missing = used - set(defined)
     unused = set(defined) - used
     if missing:

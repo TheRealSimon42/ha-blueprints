@@ -26,7 +26,7 @@ ist der Rollladen; der Fenstersensor ist optional (festverglaste Fenster!).
 - Moskito-Modus (Licht aus im Raum, wenn das Fenster nach Sonnenuntergang geöffnet wird)
 - Actionable Notifications bei zu lange offenen/gekippten Fenstern
 
-Mindestversion: Home Assistant 2024.10.
+Mindestversion: Home Assistant 2026.11 (bedingte Formularfelder).
 
 📖 **[Ausführliche Dokumentation](docs/cover_automation_v2.md)** — Einrichtung,
 Funktionsweise (Sichtfeld-Geometrie, manuelle Eingriffe, Prioritäten), bekannte

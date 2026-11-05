@@ -1,6 +1,6 @@
 # Intelligente Rollladensteuerung — Dokumentation
 
-**Blueprint:** `automations/cover_automation_v2.yaml` · Mindestversion: Home Assistant 2024.10
+**Blueprint:** `automations/cover_automation_v2.yaml` · Mindestversion: Home Assistant 2026.11
 
 [![Import Blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/TheRealSimon42/ha-blueprints/blob/main/automations/cover_automation_v2.yaml)
 
@@ -48,6 +48,15 @@ Jedes Feature darüber hinaus ist per Schalter zuschaltbar.
      für den Sonnenschutz verwenden!).
 4. Für Sonnenschutz/Sonnenheizen die **Fenstergeometrie** eintragen (Ausrichtung in
    Grad, Sichtfeld, Fensterhöhe, Brüstungshöhe) — Details unten.
+
+Das Formular zeigt nur, was gerade gebraucht wird: Die Detail-Felder von "Morgens
+öffnen", Sonnenschutz, Sonnenheizen, Moskito-Modus und Sturmschutz erscheinen erst,
+wenn der jeweilige Schalter "… aktivieren" eingeschaltet ist ("Verschiebung zum
+Sonnenaufgang" zusätzlich erst mit "Mit dem Sonnenaufgang öffnen"). Ausgeblendete
+Felder verwendet Home Assistant mit ihrem Standardwert; bereits eingetragene Werte
+gelten wieder, sobald der Schalter an ist. Die Wetter-Entität (Abschnitt Sturmschutz)
+und der Außentemperatur-Sensor (Abschnitt "Fenstergeometrie & Sonnenausrichtung")
+bleiben immer sichtbar, weil mehrere Features sie nutzen.
 
 Fehlt ein zwingend nötiger Helfer bei aktiviertem Feature, meldet sich die Automation
 selbst: Eine dauerhafte Benachrichtigung in Home Assistant benennt das betroffene

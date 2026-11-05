@@ -18,7 +18,7 @@ blueprint:
   domain: automation
   author: TheRealSimon42
   homeassistant:
-    min_version: "2024.10.0"
+    min_version: "2026.11.0"
   source_url: https://raw.githubusercontent.com/TheRealSimon42/ha-blueprints/main/automations/cover_automation_v2.yaml
   input:
     assignment_section:
@@ -81,6 +81,9 @@ blueprint:
             Helfer auswählen. Ist zusätzlich "Mit dem Sonnenaufgang öffnen"
             aktiviert, wird diese Uhrzeit zur Untergrenze ("frühestens ab").
           default: []
+          visible:
+            field: morning_enabled
+            value: true
           selector:
             entity:
               domain: input_datetime
@@ -96,6 +99,9 @@ blueprint:
             liegt der Öffnungszeitpunkt noch im Nacht-Block, wird beim Ende des
             Nachtmodus nachgeholt.
           default: false
+          visible:
+            field: morning_enabled
+            value: true
           selector:
             boolean: {}
         morning_sun_offset:
@@ -104,6 +110,11 @@ blueprint:
             Verschiebt das sonnenaufgangs-gesteuerte Öffnen in Minuten:
             negative Werte öffnen vor, positive nach dem Sonnenaufgang.
           default: 0
+          visible:
+            - field: morning_enabled
+              value: true
+            - field: morning_use_sun
+              value: true
           selector:
             number:
               min: -120
@@ -122,6 +133,9 @@ blueprint:
             Wird der Raum den ganzen Tag nicht betreten, bleibt er unten.
             Leer lassen für normales zeitgesteuertes Öffnen.
           default: []
+          visible:
+            field: morning_enabled
+            value: true
           selector:
             entity:
               filter:
@@ -136,6 +150,9 @@ blueprint:
             Die Position (in %), auf die der Rollladen morgens fährt. Es wird nur
             gefahren, wenn der Rollladen geschlossener ist als diese Position.
           default: 100
+          visible:
+            field: morning_enabled
+            value: true
           selector:
             number:
               min: 0
@@ -204,7 +221,8 @@ blueprint:
         Ausrichtung und Sichtfeld des Fensters. Diese Werte bestimmen, wann die Sonne
         geometrisch "ins Fenster scheint" — sowohl für den Sonnenschutz (Beschattung)
         als auch für Sonnenheizen. Wird nur eines der beiden Features genutzt, müssen
-        die Werte trotzdem hier gesetzt werden.
+        die Werte trotzdem hier gesetzt werden. Hier steht auch der gemeinsame
+        Außentemperatur-Sensor für beide Features.
 
 
         Zur Bedeutung von Ausrichtung und Sichtfeld:
@@ -271,6 +289,18 @@ blueprint:
               step: 1
               mode: slider
               unit_of_measurement: °
+        shading_temp_sensor:
+          name: Außentemperatur-Sensor (optional)
+          description: >
+            Optionaler Temperatursensor für die Temperatur-Bedingung von
+            Sonnenschutz und Sonnenheizen. Wenn leer, wird die Temperatur der
+            Wetter-Entität aus dem Sturmschutz-Abschnitt verwendet — eines von
+            beiden muss gesetzt sein, sonst starten Beschattung und Sonnenheizen nie.
+          default: []
+          selector:
+            entity:
+              domain: sensor
+              device_class: temperature
     shading_section:
       name: Sonnenschutz (Beschattung)
       description: >
@@ -281,7 +311,8 @@ blueprint:
         der Winkel, desto weiter oben bleibt der Rollladen. Wird der Rollladen während
         der Beschattung manuell verfahren, erkennt die Automation das und lässt ihn bis
         zum Beschattungs-Ende in Ruhe. Ausrichtung und Sichtfeld werden im Abschnitt
-        "Fenstergeometrie & Sonnenausrichtung" eingestellt.
+        "Fenstergeometrie & Sonnenausrichtung" eingestellt. Die übrigen Felder
+        erscheinen, sobald der Sonnenschutz aktiviert ist.
         ⚠️ Benötigt einen eigenen input_boolean-Helfer pro Fenster als Status-Speicher.
       icon: mdi:sun-wireless
       collapsed: true
@@ -302,6 +333,9 @@ blueprint:
             Fenster. Er merkt sich, ob die Beschattung aktiv ist, damit der Rollladen
             danach zuverlässig wieder geöffnet wird (auch über Neustarts hinweg).
           default: []
+          visible:
+            field: shading_enabled
+            value: true
           selector:
             entity:
               domain: input_boolean
@@ -316,6 +350,9 @@ blueprint:
             Wetter-Entität wird dieser Filter ignoriert, auch wenn hier Werte
             ausgewählt sind.
           default: []
+          visible:
+            field: shading_enabled
+            value: true
           selector:
             select:
               multiple: true
@@ -363,6 +400,9 @@ blueprint:
             Leer lassen = Beschattung ohne Zusatzbedingung. Bei "unavailable"
             startet keine neue Beschattung; eine laufende bleibt bestehen.
           default: []
+          visible:
+            field: shading_enabled
+            value: true
           selector:
             entity:
               filter:
@@ -372,6 +412,9 @@ blueprint:
           name: Fensterhöhe
           description: Höhe der Glasfläche in Metern.
           default: 1.3
+          visible:
+            field: shading_enabled
+            value: true
           selector:
             number:
               min: 0.3
@@ -383,6 +426,9 @@ blueprint:
           name: Brüstungshöhe
           description: Höhe der Fensterunterkante über dem Fußboden in Metern (bei bodentiefen Fenstern 0).
           default: 0.9
+          visible:
+            field: shading_enabled
+            value: true
           selector:
             number:
               min: 0
@@ -397,6 +443,9 @@ blueprint:
             gemessen, ab Fensterebene). Kleinere Werte = strengere Beschattung;
             bei sehr kleinen Werten fährt der Rollladen praktisch komplett zu.
           default: 1.0
+          visible:
+            field: shading_enabled
+            value: true
           selector:
             number:
               min: 0
@@ -416,6 +465,9 @@ blueprint:
             offen. 0 = Motor-Position wird direkt als Glasfläche interpretiert
             (bisheriges Verhalten).
           default: 0
+          visible:
+            field: shading_enabled
+            value: true
           selector:
             number:
               min: 0
@@ -431,6 +483,9 @@ blueprint:
             100 und deutlich unwichtiger als der Aufsetz-Punkt. Muss über dem
             Aufsetz-Punkt liegen, sonst wird die Kalibrierung ignoriert.
           default: 100
+          visible:
+            field: shading_enabled
+            value: true
           selector:
             number:
               min: 50
@@ -444,6 +499,9 @@ blueprint:
             Tiefer als diese Position fährt die Beschattung nicht (z.B. 10 %, damit
             immer etwas Tageslicht bleibt). 0 = ganz schließen erlaubt.
           default: 0
+          visible:
+            field: shading_enabled
+            value: true
           selector:
             number:
               min: 0
@@ -455,6 +513,9 @@ blueprint:
           name: Position nach der Beschattung
           description: Position, auf die nach Ende der Beschattung gefahren wird.
           default: 100
+          visible:
+            field: shading_enabled
+            value: true
           selector:
             number:
               min: 0
@@ -462,21 +523,13 @@ blueprint:
               step: 1
               mode: slider
               unit_of_measurement: "%"
-        shading_temp_sensor:
-          name: Außentemperatur-Sensor (optional)
-          description: >
-            Optionaler Temperatursensor für die Beschattungs-Bedingung. Wenn leer,
-            wird die Temperatur der Wetter-Entität aus dem Sturmschutz verwendet —
-            eines von beiden muss gesetzt sein, sonst startet die Beschattung nie.
-          default: []
-          selector:
-            entity:
-              domain: sensor
-              device_class: temperature
         shading_temp_threshold:
           name: Temperatur-Schwelle
           description: Beschattet wird nur, wenn die Außentemperatur über diesem Wert liegt.
           default: 25
+          visible:
+            field: shading_enabled
+            value: true
           selector:
             number:
               min: 10
@@ -490,6 +543,9 @@ blueprint:
             Die Beschattung endet erst, wenn die Temperatur um diesen Wert unter die
             Schwelle gefallen ist (verhindert ständiges Auf und Ab).
           default: 2
+          visible:
+            field: shading_enabled
+            value: true
           selector:
             number:
               min: 0
@@ -503,6 +559,9 @@ blueprint:
             Der Rollladen wird beim Nachführen nur bewegt, wenn sich die Zielposition
             um mindestens diesen Wert von der aktuellen unterscheidet (schont den Motor).
           default: 5
+          visible:
+            field: shading_enabled
+            value: true
           selector:
             number:
               min: 1
@@ -519,6 +578,9 @@ blueprint:
             endet und normal wieder geöffnet wird. Kleinere Abweichungen gelten als
             normales Nachführen der Sonne.
           default: 20
+          visible:
+            field: shading_enabled
+            value: true
           selector:
             number:
               min: 10
@@ -534,6 +596,9 @@ blueprint:
             Als Lüftungsspalt bleibt dabei mindestens die Kipp-Position stehen.
             ⚠️ Achtung: Für Balkon- und Terrassentüren nicht empfohlen — Aussperr-Gefahr!
           default: false
+          visible:
+            field: shading_enabled
+            value: true
           selector:
             boolean: {}
     solar_heating_section:
@@ -569,6 +634,9 @@ blueprint:
             aufgedrängt wird — erst wenn die Bedingungen (Sonne/Temperatur) einmal
             enden und neu eintreten, öffnet Sonnenheizen wieder.
           default: []
+          visible:
+            field: solar_heating_enabled
+            value: true
           selector:
             entity:
               domain: input_boolean
@@ -577,12 +645,16 @@ blueprint:
           description: >
             Sonnenheizen greift nur, wenn die Außentemperatur unter diesem Wert
             liegt (Heizperiode). Nutzt denselben Temperatursensor bzw. dieselbe
-            Wetter-Entität wie der Sonnenschutz (Außentemperatur-Sensor bzw.
-            Wetter-Entität aus dem Sturmschutz-Abschnitt).
+            Wetter-Entität wie der Sonnenschutz (Außentemperatur-Sensor im
+            Abschnitt "Fenstergeometrie & Sonnenausrichtung" bzw. Wetter-Entität
+            aus dem Sturmschutz-Abschnitt).
             ⚠️ Sollte deutlich unter der Beschattungs-Temperatur-Schwelle liegen,
             damit sich Sonnenschutz und Sonnenheizen bei überlappenden Werten nicht
             widersprechen (gleichzeitig schließen und öffnen wollen).
           default: 12
+          visible:
+            field: solar_heating_enabled
+            value: true
           selector:
             number:
               min: -10
@@ -596,6 +668,9 @@ blueprint:
             Sonnenheizen endet erst, wenn die Temperatur um diesen Wert über die
             Schwelle gestiegen ist (verhindert ständiges Auf und Ab).
           default: 2
+          visible:
+            field: solar_heating_enabled
+            value: true
           selector:
             number:
               min: 0
@@ -610,6 +685,9 @@ blueprint:
             und wird nur dann durch Sonnenheizen geöffnet (verhindert unnötiges
             Nachfahren bei einem bereits fast offenen Rollladen).
           default: 50
+          visible:
+            field: solar_heating_enabled
+            value: true
           selector:
             number:
               min: 0
@@ -622,6 +700,9 @@ blueprint:
           description: >
             Position (in %), auf die der Rollladen beim Sonnenheizen geöffnet wird.
           default: 100
+          visible:
+            field: solar_heating_enabled
+            value: true
           selector:
             number:
               min: 0
@@ -649,6 +730,9 @@ blueprint:
             Der Bereich, dessen Lichter ausgeschaltet werden. Wenn leer, wird
             automatisch der Bereich des Fenstersensors verwendet.
           default: ""
+          visible:
+            field: mosquito_enabled
+            value: true
           selector:
             area: {}
         mosquito_exclude:
@@ -656,6 +740,9 @@ blueprint:
           description: >
             Diese Lichter bleiben an (z.B. eine rote Stehlampe fürs Baby).
           default: []
+          visible:
+            field: mosquito_enabled
+            value: true
           selector:
             entity:
               domain: light
@@ -666,6 +753,9 @@ blueprint:
             Zusätzliche Zeitbedingung: Der Moskito-Modus greift erst ab dieser Uhrzeit
             (und nur, wenn die Sonne unter dem Horizont ist). 00:00:00 = keine Einschränkung.
           default: "00:00:00"
+          visible:
+            field: mosquito_enabled
+            value: true
           selector:
             time: {}
     night_mode_section:
@@ -729,7 +819,9 @@ blueprint:
       input:
         storm_enabled:
           name: Sturmschutz aktivieren
-          description: Benötigt eine Wetter-Entität oder einen Wind-Sensor (unten auswählen).
+          description: >
+            Benötigt eine Wetter-Entität oder einen Wind-Sensor (unten auswählen).
+            Die weiteren Sturm-Einstellungen erscheinen nach dem Aktivieren.
           default: false
           selector:
             boolean: {}
@@ -738,8 +830,10 @@ blueprint:
           description: >
             Deine Wetter-Entität (z.B. von DWD oder der Standard-Integration).
             Für den Sturmschutz wird ihr wind_speed-Attribut verwendet, sofern kein
-            Wind-Sensor gesetzt ist; außerdem dient sie als Temperatur-Fallback
-            für den Sonnenschutz.
+            Wind-Sensor gesetzt ist. Unabhängig vom Sturmschutz dient sie außerdem
+            als Temperatur-Fallback für Sonnenschutz und Sonnenheizen sowie als
+            Quelle für den Wetterlagen-Filter der Beschattung — deshalb ist das
+            Feld immer sichtbar.
           default: []
           selector:
             entity:
@@ -752,6 +846,9 @@ blueprint:
             aussagekräftiger als der Mittelwind). Wenn gesetzt, hat er Vorrang vor
             der Wetter-Entität.
           default: []
+          visible:
+            field: storm_enabled
+            value: true
           selector:
             entity:
               domain: sensor
@@ -764,6 +861,9 @@ blueprint:
             wind_speed-Attribut der Wetter-Entität verglichen — liefert deine Quelle
             m/s oder mph statt km/h, muss der Grenzwert entsprechend umgerechnet werden.
           default: 55
+          visible:
+            field: storm_enabled
+            value: true
           selector:
             number:
               min: 30
@@ -775,6 +875,9 @@ blueprint:
           name: Panzer-Modus
           description: Wenn aktiviert, wird der Rollladen bei Sturm geschlossen statt geöffnet.
           default: false
+          visible:
+            field: storm_enabled
+            value: true
           selector:
             boolean: {}
         force_storm_action:
@@ -783,6 +886,9 @@ blueprint:
             Wenn aktiviert, wird der Rollladen bei Sturm auch bewegt, wenn das Fenster
             offen ist. ⚠️ Achtung: Aussperr-Gefahr!
           default: false
+          visible:
+            field: storm_enabled
+            value: true
           selector:
             boolean: {}
     frost_section:
