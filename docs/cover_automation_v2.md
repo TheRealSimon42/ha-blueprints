@@ -72,12 +72,16 @@ Fenster, bis der Helfer gesetzt oder das Feature deaktiviert ist.
 | Sturmschutz         | Fährt bei Starkwind hoch (oder im Panzer-Modus herunter)                                                                                                                 | Wetter-Entität oder Wind-Sensor                                      |
 | Sonnenschutz        | Beschattet anhand des Sonnenstands so, dass die Sonne höchstens X m in den Raum fällt; öffnet nach Ende wieder; optional an eine Freigabe-Entität (PV, Lux, …) gekoppelt | Status-Helfer, Geometrie, Temperaturquelle                           |
 | Sonnenheizen        | Öffnet im Winter vergessene Rollos, wenn Sonne ins Fenster scheint und es kalt ist                                                                                       | eigener Status-Helfer, Geometrie                                     |
+| Notfall-Öffnen      | Fährt bei Rauch-/CO-/Gasalarm sofort ganz auf und hält den Rollladen oben, solange der Alarm anliegt (Fluchtweg, Zugang für die Feuerwehr)                               | Rauchmelder o. Ä. als Binärsensor (optional)                         |
 | Frostschutz         | Begrenzt bei Frost alle automatischen Aufwärts-Fahrten auf eine schonende Maximal-Position (festgefrorener Panzer)                                                       | Außentemperatur-Sensor                                               |
 | Moskito-Modus       | Schaltet beim Fensteröffnen nach Sonnenuntergang die Lichter im Raum aus (mit Ausnahmen)                                                                                 | Fenstersensor                                                        |
 | Benachrichtigungen  | Meldet zu lange offene/gekippte Fenster aufs Handy, mit "Rollladen schließen"-Button; verschwindet automatisch beim Schließen                                            | Companion-App-Geräte, Fenstersensor                                  |
 | Pausieren           | Hält die komplette Automation an, solange ein Helfer eingeschaltet ist — z.B. während Videoaufnahmen oder wenn Gäste schlafen                                            | `input_boolean`-Helfer (optional)                                    |
 
-**Prioritäten:** Der **Sturmschutz gewinnt immer** — bei Starkwind bewegen weder
+**Prioritäten:** Ganz oben steht das **Notfall-Öffnen**: Meldet ein Rauchmelder
+Alarm, fährt der Rollladen ganz auf — ohne Rücksicht auf Pause, Fensterzustand,
+Sturm (auch Panzer-Modus) und Frost — und bleibt oben, bis alle Melder wieder aus
+sind. Danach gilt: Der **Sturmschutz gewinnt immer** — bei Starkwind bewegen weder
 Morgens-Öffnen noch Beschattung, Sonnenheizen oder das Zurückfahren den Rollladen,
 und auch der Pausier-Helfer hält ihn nicht auf (Schutz der Hardware geht vor).
 Danach kommt die Pause (solange ihr Helfer an ist, passiert sonst gar nichts),
@@ -282,11 +286,26 @@ template:
 zweite Instanz desselben Fensters mit eigenem Zeit-Helfer an und trägt dort denselben
 Urlaubs-Helfer mit "AUS pausiert" ein — so läuft immer genau eine der beiden.
 
-**Rauchmelder / Alarm — alle Rollos hoch?** Bewusst nicht im Blueprint: Ein Brandalarm
-ist ein Haus-Ereignis, kein Pro-Fenster-Verhalten. Eine einzige kleine Automation ist
-robuster: Trigger Rauchmelder → `cover.open_cover` auf alle Rollladen-Entitäten (plus
-Licht an, Türen entriegeln — was immer der Fluchtweg braucht). Sie übersteuert die
-Blueprint-Instanzen einfach; deren Eingriffs-Erkennung stört sich daran nicht.
+**Rauchmelder / Alarm — alle Rollos hoch?** Ja, über den Abschnitt "Notfall-Öffnen
+(Rauchmelder)": Dort Rauch-, CO- oder Gasmelder auswählen (in allen Instanzen
+dieselben, wenn das ganze Haus öffnen soll — eine Gruppe oder ein `input_boolean`,
+der den Alarm bündelt, geht auch). Bei Alarm fährt der Rollladen sofort ganz auf und
+bleibt oben, solange der Alarm anliegt; Nachtmodus, Beschattung, Sturmschutz und das
+Zurückfahren nach dem Lüften bewegen ihn in dieser Zeit nicht. Sind alle Melder
+wieder aus, wird ein inzwischen aktiver Nachtmodus nachgeholt. Wichtig: Das ist eine
+Komfort-Hilfe, kein Brandschutz — fällt im Brandfall Strom oder Funk aus, fährt kein
+Rollladen mehr. Licht an oder Türen entriegeln gehört weiterhin in eine eigene
+kleine Automation.
+
+**Beschattung gegen Blendung, auch wenn es draußen kühl ist?** Im Sonnenschutz
+"Unabhängig von der Außentemperatur beschatten (Blendschutz)" aktivieren. Dann zählt
+nur noch, ob die Sonne ins Fenster scheint; Wetterlagen-Filter und Freigabe-Entität
+gelten weiter (z. B. nur bei "sonnig" oder nur bei Anwesenheit am Schreibtisch). Nicht
+mit Sonnenheizen am selben Fenster kombinieren.
+
+**Sonnenheizen öffnet, obwohl es bedeckt ist?** Unter "Wetterlagen für Sonnenheizen"
+die Lagen auswählen, bei denen geöffnet werden soll (z. B. sonnig, teilweise bewölkt).
+Braucht eine Wetter-Entität im Sturmschutz-Abschnitt.
 
 **Die Beschattung tut nichts — warum?** Prüfe in dieser Reihenfolge: Gibt es eine
 Benachrichtigung wegen fehlendem Status-Helfer? Ist eine Temperaturquelle gesetzt

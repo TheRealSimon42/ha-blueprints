@@ -295,7 +295,8 @@ blueprint:
             Optionaler Temperatursensor für die Temperatur-Bedingung von
             Sonnenschutz und Sonnenheizen. Wenn leer, wird die Temperatur der
             Wetter-Entität aus dem Sturmschutz-Abschnitt verwendet — eines von
-            beiden muss gesetzt sein, sonst starten Beschattung und Sonnenheizen nie.
+            beiden muss gesetzt sein, sonst starten Beschattung und Sonnenheizen nie
+            (Ausnahme: Beschattung mit "Unabhängig von der Außentemperatur beschatten").
           default: []
           selector:
             entity:
@@ -523,13 +524,32 @@ blueprint:
               step: 1
               mode: slider
               unit_of_measurement: "%"
+        shading_ignore_temperature:
+          name: Unabhängig von der Außentemperatur beschatten (Blendschutz)
+          description: >
+            Wenn aktiviert, zählt die Außentemperatur nicht: Beschattet wird,
+            sobald die Sonne ins Fenster scheint — z.B. gegen Blendung am
+            Bildschirm-Arbeitsplatz, auch im Winter. Temperatur-Schwelle und
+            -Hysterese entfallen dann. Wetterlagen-Filter und Freigabe-Entität
+            gelten weiter; mit ihnen lässt sich der Blendschutz z.B. auf sonnige
+            Lagen, eine Helligkeits-Schwelle oder Anwesenheit am Schreibtisch
+            eingrenzen. Hinweis: Zusammen mit Sonnenheizen am selben Fenster
+            nicht sinnvoll — beide würden bei Sonne gegeneinander arbeiten.
+          default: false
+          visible:
+            field: shading_enabled
+            value: true
+          selector:
+            boolean: {}
         shading_temp_threshold:
           name: Temperatur-Schwelle
           description: Beschattet wird nur, wenn die Außentemperatur über diesem Wert liegt.
           default: 25
           visible:
-            field: shading_enabled
-            value: true
+            - field: shading_enabled
+              value: true
+            - field: shading_ignore_temperature
+              value: false
           selector:
             number:
               min: 10
@@ -544,8 +564,10 @@ blueprint:
             Schwelle gefallen ist (verhindert ständiges Auf und Ab).
           default: 2
           visible:
-            field: shading_enabled
-            value: true
+            - field: shading_enabled
+              value: true
+            - field: shading_ignore_temperature
+              value: false
           selector:
             number:
               min: 0
@@ -710,6 +732,55 @@ blueprint:
               step: 1
               mode: slider
               unit_of_measurement: "%"
+        solar_heating_weather_states:
+          name: Wetterlagen für Sonnenheizen (optional)
+          description: >
+            Sonnenheizen öffnet nur, wenn die Wetter-Entität (siehe Sturmschutz
+            weiter unten) eine dieser Wetterlagen meldet — damit der Rollladen
+            an trüben Tagen nicht hochfährt, obwohl gar keine Sonne scheint.
+            Leer lassen, um die Wetterlage zu ignorieren (Standardverhalten wie
+            bisher — nur Sonnenstand und Temperatur zählen). Ohne gesetzte
+            Wetter-Entität wird dieser Filter ignoriert, auch wenn hier Werte
+            ausgewählt sind.
+          default: []
+          visible:
+            field: solar_heating_enabled
+            value: true
+          selector:
+            select:
+              multiple: true
+              mode: list
+              options:
+                - value: sunny
+                  label: "☀️ Sonnig"
+                - value: partlycloudy
+                  label: "⛅ Teilweise bewölkt"
+                - value: cloudy
+                  label: "☁️ Bewölkt"
+                - value: clear-night
+                  label: "🌙 Klare Nacht"
+                - value: fog
+                  label: "🌫️ Nebel"
+                - value: windy
+                  label: "💨 Windig"
+                - value: windy-variant
+                  label: "💨 Windig mit Wolken"
+                - value: rainy
+                  label: "🌧️ Regnerisch"
+                - value: pouring
+                  label: "🌧️ Starkregen"
+                - value: lightning
+                  label: "⛈️ Gewitter"
+                - value: lightning-rainy
+                  label: "⛈️ Gewitter mit Regen"
+                - value: hail
+                  label: "🌨️ Hagel"
+                - value: snowy
+                  label: "❄️ Schnee"
+                - value: snowy-rainy
+                  label: "🌨️ Schneeregen"
+                - value: exceptional
+                  label: "⚠️ Außergewöhnlich"
     mosquito_section:
       name: Moskito-Modus
       description: >
@@ -891,6 +962,42 @@ blueprint:
             value: true
           selector:
             boolean: {}
+    emergency_section:
+      name: Notfall-Öffnen (Rauchmelder)
+      description: >
+        Fährt den Rollladen bei einem Alarm sofort ganz auf — damit Fluchtwege
+        frei sind und die Feuerwehr von außen an Fenster und Türen kommt.
+        ⚠️ Das ist eine Komfort-Hilfe, kein Ersatz für Brandschutz: Fällt im
+        Brandfall der Strom oder das Funknetz aus, fährt kein Rollladen mehr.
+      icon: mdi:fire-alert
+      collapsed: true
+      input:
+        emergency_sensors:
+          name: Rauchmelder / Notfall-Sensoren (optional)
+          description: >
+            Ein oder mehrere Rauch-, CO- oder Gasmelder (oder ein
+            input_boolean bzw. eine Gruppe, die den Alarm bündelt). In allen
+            Blueprint-Instanzen dieselben auswählen, wenn im Alarmfall das
+            ganze Haus öffnen soll. Sobald einer "an" meldet, fährt der
+            Rollladen ganz auf und bleibt oben, solange ein Alarm anliegt: In
+            dieser Zeit bewegt die Automatik ihn nicht und der Moskito-Modus
+            schaltet keine Lichter aus. Nicht erreichbare Sensoren zählen nicht
+            als Alarm. Sind alle wieder aus, wird ein inzwischen aktiver
+            Nachtmodus nachgeholt. Leer lassen = kein Notfall-Öffnen.
+            ⚠️ Das Öffnen hat Vorrang vor allem anderen — auch vor Pause,
+            Fensterzustand, Sturmschutz (inkl. Panzer-Modus) und Frostschutz.
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: binary_sensor
+                  device_class:
+                    - smoke
+                    - carbon_monoxide
+                    - gas
+                    - safety
+                - domain: input_boolean
     frost_section:
       name: Frostschutz
       description: >
@@ -1069,6 +1176,15 @@ variables:
        and has_value(frost_temp_sensor)
        and states(frost_temp_sensor) | float(99) <= frost_temp_threshold }}
   shading_enable_entity: !input shading_enable_entity
+  shading_ignore_temperature: !input shading_ignore_temperature
+  solar_heating_weather_states: !input solar_heating_weather_states
+  emergency_sensors: !input emergency_sensors
+  # Notfall aktiv = mindestens ein Sensor meldet 'on'; unavailable/unknown
+  # zählen nicht als Alarm. Bewusst ohne expand(), damit eine Gruppe ihren
+  # eigenen Zustand behält, statt in ihre Mitglieder aufgelöst zu werden
+  emergency_active: >-
+    {% set sensors = [emergency_sensors] if emergency_sensors is string else emergency_sensors %}
+    {{ sensors | select('is_state', 'on') | list | length > 0 }}
   storm_enabled: !input storm_enabled
   weather_entity: !input weather_entity
   storm_wind_sensor: !input storm_wind_sensor
@@ -1234,6 +1350,18 @@ triggers:
     above: !input wind_speed_threshold
     id: storm_detected
     enabled: !input storm_enabled
+  # Feuern pro Sensor — ob der Notfall insgesamt vorbei ist, prüft der Zweig.
+  # Ende nur bei echtem 'off': Ein Melder, der im Alarm unavailable wird (z.B.
+  # im Brand zerstört), soll keine Nacht-Schließfahrt auslösen
+  - trigger: state
+    entity_id: !input emergency_sensors
+    to: "on"
+    id: emergency_open
+  - trigger: state
+    entity_id: !input emergency_sensors
+    from: "on"
+    to: "off"
+    id: emergency_ended
   - trigger: event
     event_type: mobile_app_notification_action
     event_data:
@@ -1261,13 +1389,113 @@ triggers:
     enabled: !input mosquito_enabled
 
 actions:
-  # Pausier-Helfer: hält die AUTOMATIK an, mit drei Ausnahmen — Sturmschutz
-  # (Hardware-Schutz geht vor), Benachrichtigungs-Aufräumen (bewegt nichts) und
-  # der Notification-Knopf (ein bewusster Nutzer-Befehl, wie der Wandtaster)
+  # Notfall: Solange ein Notfall-Sensor 'on' meldet, bewegt die Automatik nichts
+  # und schaltet keine Lichter. Durch dürfen nur die Notfall-Trigger selbst und
+  # die Fenster-Benachrichtigungen samt Abräumen (bewegen nichts; das
+  # Nacht-Nachholen im Abräum-Zweig prüft den Notfall selbst)
   - condition: >-
-      {{ trigger.id | default('') in ['storm_detected', 'window_closed', 'close_shutter_action']
+      {{ trigger.id | default('') in ['emergency_open', 'emergency_ended', 'window_open_long',
+                                      'window_tilted_long', 'window_closed']
+         or not emergency_active }}
+  # Pausier-Helfer: hält die AUTOMATIK an, mit vier Ausnahmen — Notfall-Öffnen
+  # (Sicherheit geht vor), Sturmschutz (Hardware-Schutz geht vor),
+  # Benachrichtigungs-Aufräumen (bewegt nichts) und der Notification-Knopf
+  # (ein bewusster Nutzer-Befehl, wie der Wandtaster). Das Notfall-ENDE bleibt
+  # pausiert: den Nachtmodus holt dann das Pause-Ende nach
+  - condition: >-
+      {{ trigger.id | default('') in ['emergency_open', 'storm_detected', 'window_closed', 'close_shutter_action']
          or not pause_active }}
   - choose:
+      # --- NOTFALL-ÖFFNEN (Rauchmelder) ---
+      - conditions:
+          - condition: trigger
+            id: emergency_open
+        sequence:
+          # Fluchtweg geht vor allem: öffnen ohne Rücksicht auf Fenster,
+          # Nachtmodus, Sturm (auch Panzer-Modus), Beschattung und Pause.
+          # Bewusst ohne Frost-Begrenzung: Ein teilgeöffneter Rollladen ist kein
+          # Fluchtweg — ein gerissener Gurt ist im Brandfall das kleinere Übel.
+          # Zuerst fahren, dann aufräumen
+          - action: cover.open_cover
+            target:
+              entity_id: !input cover
+          # Status-Helfer freigeben: Nach dem Notfall sollen Beschattung und
+          # Sonnenheizen frisch bewerten, statt die Notfall-Fahrt als manuellen
+          # Eingriff zu werten bzw. an einem Alt-Zustand festzuhalten
+          - if:
+              - "{{ shading_status_helper is string and is_state(shading_status_helper, 'on') }}"
+            then:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: "{{ shading_status_helper }}"
+          - if:
+              - "{{ solar_heating_status_helper is string and is_state(solar_heating_status_helper, 'on') }}"
+            then:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: "{{ solar_heating_status_helper }}"
+
+      # --- NOTFALL BEENDET: NACHTMODUS NACHHOLEN ---
+      - conditions:
+          - condition: trigger
+            id: emergency_ended
+          # Der Trigger feuert pro Sensor: nur nachholen, wenn ALLE wieder 'off'
+          # melden — ein im Alarm ausgefallener (unavailable) Melder verhindert
+          # die Nacht-Schließfahrt
+          - >-
+            {% set sensors = [emergency_sensors] if emergency_sensors is string else emergency_sensors %}
+            {{ sensors | reject('is_state', 'off') | list | length == 0 }}
+        sequence:
+          # Wie beim Pause-Ende: Ein während des Alarms verpasster Nachtmodus
+          # wird nachgeholt, Sturm hat Vorrang. Die Beschattung bewertet der
+          # nächste Tick neu (Status-Helfer wurde beim Öffnen freigegeben)
+          - variables:
+              wind_now: >-
+                {% if storm_wind_sensor is string %}
+                  {{ states(storm_wind_sensor) | float(0) }}
+                {% elif weather_entity is string %}
+                  {{ state_attr(weather_entity, 'wind_speed') | float(0) }}
+                {% else %}
+                  0
+                {% endif %}
+          - if:
+              - "{{ night_mode_boolean is string and is_state(night_mode_boolean, 'on') }}"
+              - "{{ not storm_enabled or (wind_now | float(0)) < wind_speed_threshold }}"
+            then:
+              - choose:
+                  - conditions:
+                      - >-
+                        {{ window_sensor is string
+                           and ((states(window_sensor) | lower) == 'tilted'
+                                or (treat_open_as_tilted and (states(window_sensor) | lower) in ['on', 'open'])) }}
+                    sequence:
+                      - action: cover.set_cover_position
+                        target:
+                          entity_id: !input cover
+                        data:
+                          position: !input tilted_position
+                  - conditions:
+                      - "{{ window_sensor is string and (states(window_sensor) | lower) in ['on', 'open'] }}"
+                    sequence:
+                      - action: cover.set_cover_position
+                        target:
+                          entity_id: !input cover
+                        data:
+                          position: !input night_ventilation_position
+                default:
+                  - if:
+                      - "{{ night_position | int(0) > 0 and state_attr(cover_entity, 'current_position') is not none }}"
+                    then:
+                      - action: cover.set_cover_position
+                        target:
+                          entity_id: !input cover
+                        data:
+                          position: !input night_position
+                    else:
+                      - action: cover.close_cover
+                        target:
+                          entity_id: !input cover
+
       # --- MORGENS ÖFFNEN (Uhrzeit, Sonnenaufgang oder Bewegung) ---
       - conditions:
           - condition: trigger
@@ -1281,8 +1509,12 @@ actions:
           # nicht bloß above_horizon, sonst öffnet bei negativem Offset an Tagen,
           # an denen der Aufgang zwischen Untergrenze und Aufgang+|Offset| liegt,
           # GAR KEIN Trigger (Deadlock) und ein positiver Offset würde ignoriert.
-          # Der heutige Sonnenaufgang wird aus next_rising abgeleitet (nach dem
-          # Aufgang zeigt next_rising auf morgen -> minus 24h, ±2 min Drift egal).
+          # Der heutige Sonnenaufgang: vor dem Aufgang next_rising, danach der
+          # letzte Zustandswechsel von sun.sun (= echter Aufgang). next_rising
+          # minus 24h ist nur eine Schätzung (morgen geht die Sonne bis zu ~2-3
+          # min früher/später auf) — liegt die Morgens-Uhrzeit genau in dieser
+          # Lücke, fiel das Öffnen im Herbst aus. Die Schätzung bleibt als
+          # Rückfall nach einem HA-Neustart (last_changed = Startzeit).
           # time_gate: Uhrzeit-Untergrenze erreicht; split(' ')[-1] macht sie
           # robust gegen versehentliche Datum+Uhrzeit-Helfer.
           # Nachtmodus blockiert Uhrzeit/Sonnenaufgang; dafür holt das
@@ -1295,7 +1527,10 @@ actions:
               {% set sun_gate = is_state('sun.sun', 'above_horizon') %}
             {% else %}
               {% set nr = as_datetime(nr_raw) %}
-              {% set sunrise_today = nr if is_state('sun.sun', 'below_horizon') else nr - timedelta(hours=24) %}
+              {% set est = nr - timedelta(hours=24) %}
+              {% set lc = states.sun.sun.last_changed %}
+              {% set sunrise_today = nr if is_state('sun.sun', 'below_horizon')
+                                     else (lc if lc <= est + timedelta(minutes=5) else est) %}
               {% set sun_gate = now() >= sunrise_today + timedelta(minutes=morning_sun_offset | int(0)) %}
             {% endif %}
             {% set time_gate = not (morning_time_entity is string
@@ -1663,7 +1898,7 @@ actions:
           - choose:
               # Beschattung starten / der Sonne nachführen
               - conditions:
-                  - "{{ sun_in_window and outdoor_temp >= shading_temp_threshold }}"
+                  - "{{ sun_in_window and (shading_ignore_temperature or outdoor_temp >= shading_temp_threshold) }}"
                   - "{{ storm_ok }}"
                   - "{{ weather_ok }}"
                   - "{{ enable_ok }}"
@@ -1730,7 +1965,8 @@ actions:
                   - "{{ is_state(shading_status_helper, 'on') }}"
                   - >-
                     {{ (not sun_in_window)
-                       or (temp_available and outdoor_temp <= (shading_temp_threshold - shading_temp_hysteresis))
+                       or (not shading_ignore_temperature and temp_available
+                           and outdoor_temp <= (shading_temp_threshold - shading_temp_hysteresis))
                        or weather_bad_stable
                        or enable_off_stable }}
                   - "{{ not (night_mode_boolean is string and is_state(night_mode_boolean, 'on')) }}"
@@ -1793,6 +2029,21 @@ actions:
                   false
                 {% endif %}
               night_mode_on: "{{ night_mode_boolean is string and is_state(night_mode_boolean, 'on') }}"
+              # Wetterlagen-Filter wie beim Sonnenschutz: ohne Auswahl, ohne
+              # Wetter-Entität oder bei unavailable/unknown immer erlaubt
+              weather_ok: >-
+                {{ solar_heating_weather_states | length == 0
+                   or not (weather_entity is string)
+                   or states(weather_entity) in ['unknown', 'unavailable']
+                   or states(weather_entity) in solar_heating_weather_states }}
+              # Beenden (= Status freigeben für die nächste Sonnenphase) nur bei
+              # STABIL unpassender Wetterlage (>= 10 Minuten), siehe Sonnenschutz
+              weather_bad_stable: >-
+                {{ solar_heating_weather_states | length > 0
+                   and weather_entity is string
+                   and states(weather_entity) not in ['unknown', 'unavailable']
+                   and states(weather_entity) not in solar_heating_weather_states
+                   and (as_timestamp(now()) - as_timestamp(states[weather_entity].last_changed)) > 600 }}
               wind_now: >-
                 {% if storm_wind_sensor is string %}
                   {{ states(storm_wind_sensor) | float(0) }}
@@ -1809,6 +2060,7 @@ actions:
               - conditions:
                   - "{{ not is_state(solar_heating_status_helper, 'on') }}"
                   - "{{ sun_in_window and outdoor_temp <= solar_heating_temp_threshold }}"
+                  - "{{ weather_ok }}"
                   - "{{ not night_mode_on }}"
                   - "{{ storm_ok }}"
                   - >-
@@ -1839,6 +2091,7 @@ actions:
                   - >-
                     {{ (not sun_in_window)
                        or (temp_available and outdoor_temp >= (solar_heating_temp_threshold + solar_heating_temp_hysteresis))
+                       or weather_bad_stable
                        or night_mode_on }}
                 sequence:
                   - action: input_boolean.turn_off
@@ -1966,6 +2219,7 @@ actions:
                 {{ trigger.from_state is not none
                    and (trigger.from_state.state | lower) in ['on', 'open', 'tilted'] }}
               - "{{ not pause_active }}"
+              - "{{ not emergency_active }}"
               - "{{ not (storm_enabled and not panzer_mode and (wind_now | float(0)) >= wind_speed_threshold) }}"
             then:
               - if:
@@ -2104,6 +2358,11 @@ actions:
                   0
                 {% endif %}
               storm_now: "{{ storm_enabled and (wind_now | float(0)) >= wind_speed_threshold }}"
+          # Liegt inzwischen ein Notfall an, bleibt der Rollladen offen: weder
+          # erzwungenes Schließen noch Nacht-Schließen noch Zurückfahren
+          - condition: >-
+              {% set sensors = [emergency_sensors] if emergency_sensors is string else emergency_sensors %}
+              {{ sensors | select('is_state', 'on') | list | length == 0 }}
           - if:
               - "{{ wait.trigger is none }}"
             then:
